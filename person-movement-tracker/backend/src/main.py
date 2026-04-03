@@ -1,6 +1,11 @@
 import uvicorn
-from .api.routes import app
-from .config import config
+
+try:
+    from .api.routes import app
+    from .config import config
+except ImportError:
+    from api.routes import app
+    from config import config
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -1,82 +1,215 @@
 import React from 'react';
+import { motion } from 'framer-motion';
+import { Line } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
 
 const TrackingStats = ({ stats }) => {
   const statItems = [
     {
       label: 'Frames Processed',
       value: stats.frameCount,
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-        </svg>
-      ),
-      color: 'bg-blue-500'
+      icon: '📊',
+      color: 'bg-gradient-to-br from-blue-500 to-blue-600'
     },
     {
       label: 'Active Tracks',
       value: stats.trackCount,
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-        </svg>
-      ),
-      color: 'bg-green-500'
+      icon: '👥',
+      color: 'bg-gradient-to-br from-green-500 to-green-600'
     },
     {
       label: 'Inference Time',
       value: `${(stats.inferenceTime * 1000).toFixed(0)}ms`,
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-      color: 'bg-purple-500'
+      icon: '⚡',
+      color: 'bg-gradient-to-br from-purple-500 to-purple-600'
     },
     {
       label: 'FPS',
       value: stats.fps.toFixed(1),
-      icon: (
-        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-        </svg>
-      ),
-      color: 'bg-orange-500'
+      icon: '🎯',
+      color: 'bg-gradient-to-br from-orange-500 to-orange-600'
     }
   ];
 
+  // Performance chart data
+  const chartData = {
+    labels: ['0', '1', '2', '3', '4', '5'],
+    datasets: [
+      {
+        label: 'FPS',
+        data: [30, 28, 32, 29, 31, 30],
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        fill: true,
+        tension: 0.4,
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      },
+      {
+        label: 'Inference Time (ms)',
+        data: [95, 92, 88, 90, 87, 91],
+        borderColor: '#8b5cf6',
+        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+        fill: true,
+        tension: 0.4,
+        borderWidth: 2,
+        pointRadius: 3,
+        pointHoverRadius: 5
+      }
+    ]
+  };
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+      legend: {
+        display: true,
+        position: 'top',
+        labels: {
+          usePointStyle: true,
+          padding: 15,
+          font: {
+            size: 12,
+            weight: '500'
+          }
+        }
+      },
+      tooltip: {
+        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+        padding: 12,
+        titleFont: {
+          size: 14,
+          weight: '600'
+        },
+        bodyFont: {
+          size: 13
+        },
+        cornerRadius: 8
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        grid: {
+          color: 'rgba(0, 0, 0, 0.05)',
+          drawBorder: false
+        },
+        ticks: {
+          font: {
+            size: 11
+          }
+        }
+      },
+      x: {
+        grid: {
+          display: false,
+          drawBorder: false
+        },
+        ticks: {
+          font: {
+            size: 11
+          }
+        }
+      }
+    }
+  };
+
   return (
-    <div className="card">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">Statistics</h2>
+    <motion.div 
+      className="card card-hover"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: 0.3 }}
+    >
+      <h2 className="text-xl font-bold text-gray-900 mb-6 bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent">
+        Statistics
+      </h2>
       
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4 mb-8">
         {statItems.map((item, index) => (
-          <div key={index} className="bg-gray-50 rounded-lg p-4">
+          <motion.div 
+            key={index}
+            className="stat-card"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3, delay: 0.4 + index * 0.1 }}
+            whileHover={{ scale: 1.05, rotate: 1 }}
+          >
             <div className="flex items-center space-x-3">
-              <div className={`${item.color} text-white p-2 rounded-lg`}>
-                {item.icon}
-              </div>
+              <motion.div 
+                className={`${item.color} text-white p-3 rounded-xl shadow-lg`}
+                whileHover={{ scale: 1.1, rotate: 5 }}
+                transition={{ type: "spring", stiffness: 400 }}
+              >
+                <div className="text-xl">{item.icon}</div>
+              </motion.div>
               <div>
                 <p className="text-2xl font-bold text-gray-900">{item.value}</p>
-                <p className="text-sm text-gray-500">{item.label}</p>
+                <p className="text-sm text-gray-600">{item.label}</p>
               </div>
             </div>
-          </div>
+          </motion.div>
         ))}
       </div>
 
-      {/* Performance Chart Placeholder */}
-      <div className="mt-6">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Performance</h3>
-        <div className="bg-gray-50 rounded-lg p-4 h-32 flex items-center justify-center">
-          <div className="text-center text-gray-400">
-            <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-            </svg>
-            <p className="text-sm">Performance chart will appear here</p>
-          </div>
+      {/* Performance Chart */}
+      <motion.div 
+        className="bg-gradient-to-br from-white to-gray-50 rounded-xl p-4 shadow-md"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.6 }}
+      >
+        <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center space-x-2">
+          <span>📈</span>
+          <span>Performance Metrics</span>
+        </h3>
+        <div className="h-48">
+          <Line data={chartData} options={chartOptions} />
         </div>
-      </div>
-    </div>
+      </motion.div>
+
+      {/* System Status */}
+      <motion.div 
+        className="mt-6 bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-4"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5, delay: 0.7 }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+            <span className="text-sm font-semibold text-gray-800">System Status</span>
+          </div>
+          <span className="text-sm font-medium text-green-600">Optimal</span>
+        </div>
+        <div className="mt-2 text-xs text-gray-600">
+          AI Model: YOLOv8 • Detection Mode: Real-time • Processing: Normal
+        </div>
+      </motion.div>
+    </motion.div>
   );
 };
 

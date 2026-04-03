@@ -1,7 +1,13 @@
 from typing import Dict, Any
-from ..config import ModelType, DeviceType
-from .yolo_detector import YOLODetector
-from .huggingface_detector import HuggingFaceDetector
+
+try:
+    from ..config import ModelType, DeviceType
+    from .yolo_detector import YOLODetector
+    from .huggingface_detector import HuggingFaceDetector
+except ImportError:
+    from config import ModelType, DeviceType
+    from models.yolo_detector import YOLODetector
+    from models.huggingface_detector import HuggingFaceDetector
 
 class DetectorFactory:
     """Factory for creating detector instances"""

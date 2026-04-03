@@ -2,7 +2,11 @@ import cv2
 import numpy as np
 import base64
 from typing import Tuple, Optional
-from ..config import config
+
+try:
+    from ..config import config
+except ImportError:
+    from config import config
 
 class ImageProcessor:
     def __init__(self):

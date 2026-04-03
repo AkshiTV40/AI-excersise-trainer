@@ -2,7 +2,11 @@ import torch
 import psutil
 import platform
 from typing import Dict, Any
-from ..config import config
+
+try:
+    from ..config import config
+except ImportError:
+    from config import config
 
 class DeviceOptimizer:
     def __init__(self):

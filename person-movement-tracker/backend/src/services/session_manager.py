@@ -3,7 +3,11 @@ import time
 from typing import Dict, Optional, List
 from dataclasses import dataclass, asdict
 import redis
-from ..config import config
+
+try:
+    from ..config import config
+except ImportError:
+    from config import config
 
 @dataclass
 class Session:

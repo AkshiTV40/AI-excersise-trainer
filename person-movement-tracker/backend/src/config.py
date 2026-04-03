@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import List, Optional, Tuple
 from enum import Enum
+import json
 
 class ModelType(str, Enum):
     YOLOv8 = "yolov8"
@@ -43,12 +44,24 @@ class AppConfig(BaseSettings):
     hf_cache_dir: str = "./models"
     
     # Performance
-    max_frame_size: Tuple[int, int] = (1280, 720)
-    mobile_frame_size: Tuple[int, int] = (640, 480)
+    max_frame_size: str = "[1280,720]"
+    mobile_frame_size: str = "[640,480]"
     enable_fp16: bool = False
     
     class Config:
         env_file = ".env"
         case_sensitive = False
+        
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Parse string tuples back to actual tuples (handle format like "[1280,720]")
+        if isinstance(self.max_frame_size, str):
+            # Remove brackets and split by comma
+            cleaned = self.max_frame_size.strip('[]')
+            self.max_frame_size = tuple(map(int, cleaned.split(',')))
+        if isinstance(self.mobile_frame_size, str):
+            # Remove brackets and split by comma
+            cleaned = self.mobile_frame_size.strip('[]')
+            self.mobile_frame_size = tuple(map(int, cleaned.split(',')))
 
 config = AppConfig()

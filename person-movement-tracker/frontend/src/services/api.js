@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -85,6 +85,77 @@ export const api = {
       throw error;
     }
   },
+
+  // Exercise tracking
+  trackExerciseFrame: async (imageData, sessionId, exerciseType, enableTracking = true) => {
+    try {
+      const response = await apiClient.post('/api/exercise/track', {
+        image: imageData,
+        session_id: sessionId,
+        exercise_type: exerciseType,
+        enable_tracking: enableTracking
+      });
+      return response.data;
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  },
+
+  // Analyze uploaded exercise video
+  trackExerciseVideo: async (file, exerciseType = 'squat', referenceUrl = null, maxSeconds = 10) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('exercise_type', exerciseType);
+      if (referenceUrl) {
+        formData.append('reference_url', referenceUrl);
+      }
+      formData.append('max_seconds', maxSeconds);
+
+      const response = await apiClient.post('/api/exercise/track/video', formData, {
+        headers: {'Content-Type': 'multipart/form-data'},
+        timeout: 120000,
+      });
+      return response.data;
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  },
+
+  // Get supported exercise types
+  getExerciseTypes: async () => {
+    try {
+      const response = await apiClient.get('/api/exercise/types');
+      return response.data;
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  },
+
+  // Reset exercise tracking
+  resetExerciseTracking: async (exerciseType) => {
+    try {
+      const response = await apiClient.post('/api/exercise/reset', null, {
+        params: { exercise_type: exerciseType }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('API Error:', error);
+      throw error;
+    }
+  },
 };
+
+export const trackExerciseFrame = api.trackExerciseFrame;
+export const trackExerciseVideo = api.trackExerciseVideo;
+export const trackFrame = api.trackFrame;
+export const trackFile = api.trackFile;
+export const getExerciseTypes = api.getExerciseTypes;
+export const resetExerciseTracking = api.resetExerciseTracking;
+export const getSessionStats = api.getSessionStats;
+export const healthCheck = api.healthCheck;
 
 export default apiClient;

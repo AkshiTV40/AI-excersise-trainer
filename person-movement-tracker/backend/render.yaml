@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: person-tracker-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MODEL_NAME
+        value: yolov8n
+      - key: DEVICE
+        value: cpu
+      - key: PORT
+        value: 8000
+      - key: CORS_ORIGINS
+        value: https://your-frontend-url.vercel.app
+    disk:
+      name: models
+      mountPath: /app/models
+      sizeGB: 5

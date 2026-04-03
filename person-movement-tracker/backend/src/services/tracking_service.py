@@ -7,10 +7,16 @@ import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from ..config import config
-from ..models.detector_factory import DetectorFactory, ModelType
-from ..models.tracker import MultiObjectTracker
-from ..utils.image_processor import ImageProcessor
+try:
+    from ..config import config
+    from ..models.detector_factory import DetectorFactory, ModelType
+    from ..models.tracker import MultiObjectTracker
+    from ..utils.image_processor import ImageProcessor
+except ImportError:
+    from config import config
+    from models.detector_factory import DetectorFactory, ModelType
+    from models.tracker import MultiObjectTracker
+    from utils.image_processor import ImageProcessor
 
 class TrackingService:
     def __init__(self):

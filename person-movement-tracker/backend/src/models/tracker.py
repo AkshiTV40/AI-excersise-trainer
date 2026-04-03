@@ -5,7 +5,11 @@ from collections import defaultdict
 import time
 
 from deep_sort_realtime.deepsort_tracker import DeepSort
-from .base_detector import Detection
+
+try:
+    from .base_detector import Detection
+except ImportError:
+    from models.base_detector import Detection
 
 @dataclass
 class Track:

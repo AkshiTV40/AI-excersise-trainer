@@ -4,7 +4,10 @@ from typing import List, Tuple, Any
 from ultralytics import YOLO
 import cv2
 
-from .base_detector import BaseDetector, Detection
+try:
+    from .base_detector import BaseDetector, Detection
+except ImportError:
+    from models.base_detector import BaseDetector, Detection
 
 class YOLODetector(BaseDetector):
     def __init__(self, model_path: str = 'yolov8n.pt', **kwargs):
