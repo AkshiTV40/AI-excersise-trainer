@@ -17,6 +17,12 @@ transformers==4.35.2
 ultralytics==8.0.196
 huggingface-hub==0.19.4
 
+# ML for exercise form classification
+xgboost==2.0.3
+scikit-learn==1.3.2
+joblib==1.3.2
+pandas==2.1.3
+
 # Tracking
 deep-sort-realtime==1.3.2
 filterpy==1.4.5

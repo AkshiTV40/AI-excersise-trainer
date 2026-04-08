@@ -8,6 +8,8 @@ import logging
 import os
 import tempfile
 import time
+import numpy as np
+import cv2
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +61,13 @@ exercise_tracking_service = None
 youtube_service = YouTubeService()
 video_analysis_service = None
 guidance_service = None
+background_form_detector = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
     await tracking_service.initialize()
-    global exercise_tracking_service, video_analysis_service
+    global exercise_tracking_service, video_analysis_service, background_form_detector
     from ..services.exercise_tracking_service import ExerciseTrackingService
     exercise_tracking_service = ExerciseTrackingService()
     await exercise_tracking_service.initialize()
@@ -73,6 +76,19 @@ async def startup_event():
     pose_detector = MediaPipePoseDetector()
     analyzer = ExerciseAnalyzerFactory.create_analyzer(ExerciseType.SQUAT, pose_detector)
     video_analysis_service = VideoAnalysisService(pose_detector, analyzer)
+    
+    # Initialize background form detector with YOLO pose and classifier
+    try:
+        from ..services.background_form_detector import BackgroundFormDetector
+        classifier_model = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "form_classifier_model.pkl")
+        background_form_detector = BackgroundFormDetector(
+            yolo_model="yolov8n-pose.pt",
+            classifier_model=classifier_model if os.path.exists(classifier_model) else None,
+            device="cpu"
+        )
+    except Exception as e:
+        logger.warning(f"Could not initialize BackgroundFormDetector: {e}")
+        background_form_detector = None
 
     # Optional AI guidance using Qwen transformer model
     try:
@@ -466,6 +482,158 @@ async def reset_exercise_tracking(exercise_type: str):
         return {"success": True, "message": f"Reset tracking for {exercise_type}"}
     except ValueError:
         return {"success": False, "error": f"Invalid exercise type: {exercise_type}"}
+
+
+# Background Form Detection Endpoints
+
+@app.post("/api/background/analyze")
+async def analyze_background_form(
+    file: UploadFile = File(...),
+    exercise_type: str = Form("squat"),
+    skip_frames: int = Form(3)
+):
+    """Upload video for background form analysis using YOLO + XGBoost classifier"""
+    if not background_form_detector:
+        return JSONResponse(
+            status_code=500,
+            content={'error': 'Background form detector not initialized'}
+        )
+    
+    import base64
+    import cv2
+    
+    temp_path = os.path.join(tempfile.gettempdir(), f"background_analyze_{int(time.time() * 1000)}.mp4")
+    
+    try:
+        # Save upload to disk
+        contents = await file.read()
+        with open(temp_path, 'wb') as out_file:
+            out_file.write(contents)
+        
+        # Extract frames from video
+        cap = cv2.VideoCapture(temp_path)
+        frames = []
+        
+        frame_idx = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            if frame_idx % skip_frames == 0:
+                frame_resized = cv2.resize(frame, (640, 480))
+                frames.append(frame_resized)
+            
+            frame_idx += 1
+        
+        cap.release()
+        
+        if not frames:
+            return JSONResponse(
+                status_code=400,
+                content={'error': 'No frames extracted from video'}
+            )
+        
+        # Analyze frames
+        analysis_results = background_form_detector.analyze_video_frames(frames, skip_frames=1)
+        
+        # Get aggregate analysis
+        aggregate = background_form_detector.get_aggregate_analysis(analysis_results)
+        
+        # Get sample keypoints and angles from first valid result
+        sample_keypoints = {}
+        sample_angles = {}
+        
+        for result in analysis_results:
+            if result.keypoints:
+                sample_keypoints = {k: list(v) for k, v in result.keypoints.items()}
+                sample_angles = result.angles
+                break
+        
+        return {
+            'success': True,
+            'exercise_type': exercise_type,
+            'frames_analyzed': len(frames),
+            'aggregate_analysis': aggregate,
+            'sample_keypoints': sample_keypoints,
+            'sample_angles': sample_angles
+        }
+    
+    except Exception as e:
+        logger.error(f"Error in background form analysis: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={'error': str(e)}
+        )
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+@app.post("/api/background/analyze/frame")
+async def analyze_single_frame_background(
+    image: UploadFile = File(...),
+    exercise_type: str = Form("squat")
+):
+    """Analyze a single image frame for background form detection"""
+    if not background_form_detector:
+        return JSONResponse(
+            status_code=500,
+            content={'error': 'Background form detector not initialized'}
+        )
+    
+    try:
+        contents = await image.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return JSONResponse(
+                status_code=400,
+                content={'error': 'Could not decode image'}
+            )
+        
+        frame_resized = cv2.resize(frame, (640, 480))
+        result = background_form_detector.analyze_frame(frame_resized, frame_idx=0)
+        
+        keypoints_dict = {}
+        if result.keypoints:
+            keypoints_dict = {k: list(v) for k, v in result.keypoints.items()}
+        
+        return {
+            'success': True,
+            'exercise_type': exercise_type,
+            'keypoints': keypoints_dict,
+            'angles': result.angles,
+            'form_classification': {
+                'label': result.form_classification.form_label if result.form_classification else None,
+                'confidence': result.form_classification.confidence if result.form_classification else 0.0,
+                'is_good_form': result.form_classification.is_good_form if result.form_classification else None
+            } if result.form_classification else None
+        }
+    
+    except Exception as e:
+        logger.error(f"Error in single frame analysis: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={'error': str(e)}
+        )
+
+
+@app.get("/api/background/status")
+async def get_background_detector_status():
+    """Get background form detector status"""
+    if not background_form_detector:
+        return {
+            'status': 'not_initialized',
+            'message': 'Background form detector not available'
+        }
+    
+    return {
+        'status': 'ready',
+        'model': 'yolov8n-pose',
+        'classifier': 'xgboost' if background_form_detector.classifier and background_form_detector.classifier.is_trained else 'heuristic'
+    }
 
 @app.websocket("/ws/exercise/track")
 async def websocket_exercise_track(websocket: WebSocket):
