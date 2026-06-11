@@ -885,20 +885,47 @@ async def websocket_record_session(websocket: WebSocket):
                                 filename = f"session_{session_id}_{timestamp}.mp4"
                                 video_path = RECORDINGS_DIR / filename
                                 
-                                # Write video file
-                                if len(frames) > 0:
-                                    height, width = frames[0].shape[:2]
-                                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                                    out = cv2.VideoWriter(
-                                        str(video_path),
-                                        fourcc,
-                                        fps,
-                                        (width, height)
-                                    )
-                                    
-                                    for frame in frames:
-                                        out.write(frame)
-                                    out.release()
+                                 # Write video file
+                                 if len(frames) > 0:
+                                     try:
+                                         height, width = frames[0].shape[:2]
+                                         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                                         out = cv2.VideoWriter(
+                                             str(video_path),
+                                             fourcc,
+                                             fps,
+                                             (width, height)
+                                         )
+                                         
+                                         if not out.isOpened():
+                                             logger.error(f"Failed to open VideoWriter for {video_path}")
+                                             await websocket.send_json({
+                                                 "type": "error",
+                                                 "message": "Failed to initialize video writer"
+                                             })
+                                             continue
+                                         
+                                         for frame in frames:
+                                             out.write(frame)
+                                         out.release()
+                                         
+                                         # Verify file was written
+                                         if not video_path.exists():
+                                             logger.error(f"Video file was not created at {video_path}")
+                                             await websocket.send_json({
+                                                 "type": "error",
+                                                 "message": "Failed to create video file"
+                                             })
+                                             continue
+                                             
+                                         logger.info(f"Video saved successfully to {video_path} ({os.path.getsize(video_path)} bytes)")
+                                     except Exception as e:
+                                         logger.error(f"Error writing video file: {e}")
+                                         await websocket.send_json({
+                                             "type": "error",
+                                             "message": f"Error saving video: {str(e)}"
+                                         })
+                                         continue
                                 
                                 # Add to database
                                 video_id = add_video(
@@ -1024,20 +1051,47 @@ async def websocket_record_session(websocket: WebSocket):
                             filename = f"session_{session_id}_{timestamp}.mp4"
                             video_path = RECORDINGS_DIR / filename
                             
-                            # Write video file
-                            if len(frames) > 0:
-                                height, width = frames[0].shape[:2]
-                                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                                out = cv2.VideoWriter(
-                                    str(video_path),
-                                    fourcc,
-                                    fps,
-                                    (width, height)
-                                )
-                                
-                                for frame in frames:
-                                    out.write(frame)
-                                out.release()
+                             # Write video file
+                             if len(frames) > 0:
+                                 try:
+                                     height, width = frames[0].shape[:2]
+                                     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                                     out = cv2.VideoWriter(
+                                         str(video_path),
+                                         fourcc,
+                                         fps,
+                                         (width, height)
+                                     )
+                                     
+                                     if not out.isOpened():
+                                         logger.error(f"Failed to open VideoWriter for {video_path}")
+                                         await websocket.send_json({
+                                             "type": "error",
+                                             "message": "Failed to initialize video writer"
+                                         })
+                                         continue
+                                     
+                                     for frame in frames:
+                                         out.write(frame)
+                                     out.release()
+                                     
+                                     # Verify file was written
+                                     if not video_path.exists():
+                                         logger.error(f"Video file was not created at {video_path}")
+                                         await websocket.send_json({
+                                             "type": "error",
+                                             "message": "Failed to create video file"
+                                         })
+                                         continue
+                                         
+                                     logger.info(f"Video saved successfully to {video_path} ({os.path.getsize(video_path)} bytes)")
+                                 except Exception as e:
+                                     logger.error(f"Error writing video file: {e}")
+                                     await websocket.send_json({
+                                         "type": "error",
+                                         "message": f"Error saving video: {str(e)}"
+                                     })
+                                     continue
                             
                             # Add to database
                             video_id = add_video(
