@@ -113,3 +113,29 @@ class SessionData(BaseModel):
     start_time: float
     frame_results: List[Dict[str, Any]]
     track_history: Dict[int, List[Dict[str, Any]]]
+
+class VideoBase(BaseModel):
+    filename: str
+    original_filename: str
+    exercise_type: Optional[str] = None
+    file_size: Optional[int] = None
+    duration: Optional[float] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    description: Optional[str] = None
+
+class VideoCreate(VideoBase):
+    pass
+
+class Video(VideoBase):
+    id: int
+    upload_date: str
+
+    class Config:
+        orm_mode = True
+
+class VideoList(BaseModel):
+    videos: List[Video]
+    total: int
+    page: int
+    size: int

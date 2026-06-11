@@ -181,13 +181,13 @@ def process_videos(video_dir: str, output_dir: str, label: int, extractor: Keypo
 
 def main():
     parser = argparse.ArgumentParser(description="Train exercise form classifier")
-    parser.add_argument("--good-videos", default="data/videos/good_form", help="Path to good form videos")
-    parser.add_argument("--bad-videos", default="data/videos/bad_form", help="Path to bad form videos")
+    parser.add_argument("--good-videos", default="videos/good_form", help="Path to good form videos (relative to backend/data)")
+    parser.add_argument("--bad-videos", default="videos/bad_form", help="Path to bad form videos (relative to backend/data)")
     parser.add_argument("--output", default="models/form_classifier_model.pkl", help="Output model path")
     parser.add_argument("--yolo-model", default="yolov8n-pose.pt", help="YOLO model name")
     args = parser.parse_args()
     
-    base_dir = Path(__file__).parent.parent / "backend"
+    base_dir = Path(__file__).parent / "backend"
     data_dir = base_dir / "data"
     
     good_videos_path = args.good_videos if os.path.isabs(args.good_videos) else data_dir / args.good_videos

@@ -7,13 +7,15 @@ import TrackList from './components/TrackList';
 import ExerciseFeedback from './components/ExerciseFeedback';
 import ExerciseSelector from './components/ExerciseSelector';
 import YouTubeAnalyzer from './components/YouTubeAnalyzer';
+import Instructions from './components/Instructions';
+import ExerciseTimer from './components/ExerciseTimer';
 import { useCamera } from './hooks/useCamera';
 import { useTracking } from './hooks/useTracking';
 import { useExerciseTracking } from './hooks/useExerciseTracking';
 import { trackExerciseVideo } from './services/api';
 
 function App() {
-  const [mode, setMode] = useState('tracking'); // 'tracking', 'exercise', or 'youtube'
+  const [mode, setMode] = useState('tracking'); // 'tracking', 'exercise', 'youtube', or 'instructions'
   const [isTracking, setIsTracking] = useState(false);
   const [selectedModel, setSelectedModel] = useState('yolov8');
   const [selectedExercise, setSelectedExercise] = useState('squat');
@@ -30,7 +32,7 @@ function App() {
   const [referenceUrl, setReferenceUrl] = useState('');
   const [isVideoAnalyzing, setIsVideoAnalyzing] = useState(false);
 
-  const { videoRef, canvasRef, startCamera, stopCamera, isActive } = useCamera();
+  const { videoRef, canvasRef, startCamera, stopCamera, isActive, isRecording, startRecording, stopRecording } = useCamera();
   const { processFrame, isProcessing } = useTracking();
   const { processExerciseFrame, isExerciseProcessing, resetExercise } = useExerciseTracking();
 
@@ -42,6 +44,11 @@ function App() {
   const handleStopTracking = () => {
     stopCamera();
     setIsTracking(false);
+  };
+
+  const handleStartRecording = async () => {
+    await startCamera();
+    setIsTracking(true);
   };
 
   const handleModelChange = (model) => {
@@ -115,6 +122,7 @@ function App() {
                 <p className="text-sm text-gray-600 mt-1">
                   {mode === 'tracking' ? 'Real-time detection and tracking' : 
                    mode === 'exercise' ? 'Exercise form analysis' :
+                   mode === 'instructions' ? 'How to use this app' :
                    'YouTube video analysis'}
                 </p>
               </div>
@@ -125,7 +133,8 @@ function App() {
                 {[
                   { id: 'tracking', name: 'Tracking' },
                   { id: 'exercise', name: 'Exercise' },
-                  { id: 'youtube', name: 'YouTube' }
+                  { id: 'youtube', name: 'YouTube' },
+                  { id: 'instructions', name: 'Instructions' }
                 ].map((m) => (
                   <motion.button
                     key={m.id}
@@ -170,6 +179,14 @@ function App() {
             transition={{ duration: 0.6 }}
           >
             <YouTubeAnalyzer />
+          </motion.div>
+        ) : mode === 'instructions' ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
+            <Instructions />
           </motion.div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -227,7 +244,7 @@ function App() {
                     selectedExercise={selectedExercise}
                     onExerciseChange={handleExerciseChange}
                     isTracking={isTracking}
-                    onStartTracking={handleStartTracking}
+                    onStartTracking={handleStartRecording}
                     onStopTracking={handleStopTracking}
                   />
 
@@ -282,6 +299,9 @@ function App() {
 
                   {/* Exercise Feedback */}
                   <ExerciseFeedback analysis={exerciseAnalysis} />
+
+                  {/* Exercise Timer */}
+                  <ExerciseTimer selectedExercise={selectedExercise} />
                 </motion.div>
               )}
             </div>

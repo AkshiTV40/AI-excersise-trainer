@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { API_BASE_URL } from '../services/api';
+
+const isProduction = import.meta.env.PROD;
+const API_BASE_URL = isProduction ? '' : (import.meta.env.VITE_API_URL || 'http://localhost:8000');
 
 function YouTubeAnalyzer() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -48,7 +50,7 @@ function YouTubeAnalyzer() {
       if (data.success) {
         setVideoInfo(data);
       } else {
-        setError(data.error || 'Failed to get video information');
+        setError(data.error || data.detail || 'Failed to get video information');
       }
     } catch (err) {
       setError(`Error: ${err.message}`);
@@ -82,7 +84,7 @@ function YouTubeAnalyzer() {
         setAnalysisResult(data);
         setProgress(100);
       } else {
-        setError(data.detail || 'Analysis failed');
+        setError(data.detail || data.error || 'Analysis failed');
       }
     } catch (err) {
       setError(`Error: ${err.message}`);

@@ -3,7 +3,8 @@ YouTube Video Analysis API Endpoints
 Extension to main routes for YouTube video fetching and analysis
 """
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Form
+from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ def setup_youtube_routes(app):
     video_analysis_service = None  # Will be set from main routes
     
     @app.post("/api/youtube/video-info")
-    async def get_youtube_info(url: str):
+    async def get_youtube_info(url: str = Form(...)):
         """
         Get information about YouTube video without downloading
         
@@ -47,8 +48,8 @@ def setup_youtube_routes(app):
 
     @app.post("/api/youtube/analyze")
     async def analyze_youtube_video(
-        url: str,
-        exercise_type: str = None
+        url: str = Form(...),
+        exercise_type: Optional[str] = Form(None)
     ):
         """
         Fetch YouTube video and analyze exercise form

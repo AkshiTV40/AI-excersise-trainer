@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 import asyncio
 import json
 import logging
@@ -10,6 +10,8 @@ import tempfile
 import time
 import numpy as np
 import cv2
+from ..database import init_db, get_db_connection, add_video, get_video, get_videos, delete_video
+from ..api.schemas import Video, VideoCreate, VideoList
 
 logger = logging.getLogger(__name__)
 
