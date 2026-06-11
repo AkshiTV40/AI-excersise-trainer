@@ -1,6 +1,6 @@
 """
-Exercise Form Classifier Service
-Uses Decision Tree to classify exercise form as good or bad based on pose keypoints
+Decision Tree Classifier for Exercise Form Classification
+Uses scikit-learn DecisionTreeClassifier to classify exercise form as good or bad based on pose keypoints
 """
 
 import os
@@ -10,6 +10,14 @@ from dataclasses import dataclass
 import numpy as np
 import joblib
 from pathlib import Path
+
+try:
+    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.pipeline import Pipeline
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +87,7 @@ class KeypointFeatureExtractor:
         return self.extract_features(keypoints)
 
 
-class ExerciseFormClassifier:
+class DecisionTreeFormClassifier:
     """
     Classifier for exercise form using Decision Tree
     Classifies form as good (0) or bad (1) based on pose keypoints
@@ -92,8 +100,8 @@ class ExerciseFormClassifier:
         Args:
             model_path: Path to saved model file (optional)
         """
-        # Import here to avoid circular imports
-        from ..models.decision_tree_classifier import DecisionTreeFormClassifier
+        if not SKLEARN_AVAILABLE:
+            raise ImportError("scikit-learn is required for DecisionTreeFormClassifier")
         
         self.feature_extractor = KeypointFeatureExtractor([
             "nose", "left_eye", "right_eye", "left_ear", "right_ear",
@@ -102,14 +110,22 @@ class ExerciseFormClassifier:
             "left_knee", "right_knee", "left_ankle", "right_ankle"
         ])
         
-        # Create the decision tree classifier
-        self.classifier = DecisionTreeFormClassifier(model_path)
-        self.is_trained = self.classifier.is_trained
+        # Create a pipeline with preprocessing and classifier
+        self.model = Pipeline([
+            ('scaler', StandardScaler()),
+            ('classifier', DecisionTreeClassifier(
+                max_depth=10,
+                min_samples_split=5,
+                min_samples_leaf=2,
+                random_state=42
+            ))
+        ])
+        
+        self.model_loaded = False
+        self.is_trained = False
         
         if model_path and os.path.exists(model_path):
-            logger.info(f"Decision tree classifier loaded from {model_path}")
-        elif not self.classifier.is_trained:
-            logger.info("Using untrained decision tree classifier (will use heuristics until trained)")
+            self.load_model(model_path)
     
     def load_model(self, model_path: str) -> bool:
         """
@@ -121,11 +137,15 @@ class ExerciseFormClassifier:
         Returns:
             True if loaded successfully
         """
-        success = self.classifier.load_model(model_path)
-        self.is_trained = self.classifier.is_trained
-        if success:
+        try:
+            self.model = joblib.load(model_path)
+            self.model_loaded = True
+            self.is_trained = True
             logger.info(f"Decision tree model loaded from {model_path}")
-        return success
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            return False
     
     def save_model(self, model_path: str) -> bool:
         """
@@ -137,10 +157,17 @@ class ExerciseFormClassifier:
         Returns:
             True if saved successfully
         """
-        success = self.classifier.save_model(model_path)
-        if success:
+        if not self.is_trained:
+            return False
+        
+        try:
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            joblib.dump(self.model, model_path)
             logger.info(f"Decision tree model saved to {model_path}")
-        return success
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save model: {e}")
+            return False
     
     def train(self, X_train: np.ndarray, y_train: np.ndarray) -> bool:
         """
@@ -153,11 +180,15 @@ class ExerciseFormClassifier:
         Returns:
             True if trained successfully
         """
-        success = self.classifier.train(X_train, y_train)
-        self.is_trained = self.classifier.is_trained
-        if success:
+        try:
+            self.model.fit(X_train, y_train)
+            self.model_loaded = True
+            self.is_trained = True
             logger.info("Decision tree model trained successfully")
-        return success
+            return True
+        except Exception as e:
+            logger.error(f"Training failed: {e}")
+            return False
     
     def predict(self, keypoints: Dict[str, Tuple[float, float]]) -> FormClassificationResult:
         """
@@ -169,15 +200,35 @@ class ExerciseFormClassifier:
         Returns:
             FormClassificationResult with prediction
         """
-        # Get result from decision tree classifier
-        result = self.classifier.predict(keypoints)
+        if not self.is_trained:
+            return self._heuristic_prediction(keypoints)
         
-        # Convert to the expected FormatClassificationResult (should already be compatible)
-        return FormClassificationResult(
-            form_label=result.form_label,
-            confidence=result.confidence,
-            is_good_form=result.is_good_form
-        )
+        try:
+            features = self.feature_extractor.extract_from_dict(keypoints)
+            
+            if not features:
+                return FormClassificationResult(
+                    form_label="unknown",
+                    confidence=0.0,
+                    is_good_form=False
+                )
+            
+            X = np.array([features])
+            prediction = self.model.predict(X)[0]
+            probabilities = self.model.predict_proba(X)[0]
+            
+            confidence = float(max(probabilities))
+            is_good_form = bool(prediction == 0)
+            
+            return FormClassificationResult(
+                form_label="good_form" if is_good_form else "bad_form",
+                confidence=confidence,
+                is_good_form=is_good_form
+            )
+            
+        except Exception as e:
+            logger.error(f"Prediction failed: {e}")
+            return self._heuristic_prediction(keypoints)
     
     def _heuristic_prediction(self, keypoints: Dict[str, Tuple[float, float]]) -> FormClassificationResult:
         """
@@ -238,30 +289,10 @@ class ExerciseFormClassifier:
         if not self.is_trained:
             return {}
         
-        # Create temporary arrays for evaluation in the format expected by the decision tree
-        # We need to convert feature vectors back to keypoints dicts for the predict method
-        # This is inefficient but maintains compatibility with the existing interface
-        
-        # For now, just use the classifier's evaluate method if available
-        if hasattr(self.classifier, 'evaluate'):
-            return self.classifier.evaluate(X_test, y_test)
-        
-        # Fallback: manual evaluation (less efficient)
         try:
             from sklearn.metrics import classification_report, accuracy_score
             
-            y_pred = []
-            for i in range(len(X_test)):
-                # This is a simplification - we'd need to store original keypoints
-                # For now, use dummy keypoints (this won't be accurate for real evaluation)
-                dummy_keypoints = {name: (0.5, 0.5) for name in [
-                    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-                    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-                    "left_wrist", "right_wrist", "left_hip", "right_hip",
-                    "left_knee", "right_knee", "left_ankle", "right_ankle"
-                ]}
-                result = self.predict(dummy_keypoints)
-                y_pred.append(0 if result.is_good_form else 1)
+            y_pred = self.model.predict(X_test)
             
             return {
                 "accuracy": float(accuracy_score(y_test, y_pred)),
@@ -270,47 +301,94 @@ class ExerciseFormClassifier:
         except Exception as e:
             logger.error(f"Evaluation failed: {e}")
             return {}
-
-
-class KeypointsToCSVConverter:
-    """Convert keypoints to CSV format for training data"""
     
-    @staticmethod
-    def save_keypoints_to_csv(keypoints_data: List[Dict], output_path: str) -> bool:
+    def get_feature_importance(self) -> Optional[np.ndarray]:
         """
-        Save keypoints data to CSV file
+        Get feature importance from the decision tree
         
-        Args:
-            keypoints_data: List of dictionaries with frame, keypoint_id, x, y, confidence
-            output_path: Output CSV file path
-            
         Returns:
-            True if saved successfully
+            Array of feature importance values or None if not trained
         """
-        try:
-            import pandas as pd
-            df = pd.DataFrame(keypoints_data)
-            df.to_csv(output_path, index=False)
-            logger.info(f"Keypoints saved to {output_path}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save keypoints: {e}")
-            return False
-    
-    @staticmethod
-    def load_keypoints_from_csv(csv_path: str):
-        """
-        Load keypoints from CSV file
-        
-        Args:
-            csv_path: Path to CSV file
-            
-        Returns:
-            DataFrame with keypoints data
-        """
-        try:
-            import pandas as pd
-            return pd.read_csv(csv_path)
-        except Exception as e:
-            logger.error(f"Failed to load keypoints: {e}")
+        if not self.is_trained:
             return None
+        
+        try:
+            return self.model.named_steps['classifier'].feature_importances_
+        except Exception as e:
+            logger.error(f"Failed to get feature importance: {e}")
+            return None
+
+
+# Example usage and training function
+def create_training_data_from_keypoints(good_form_dir: str, bad_form_dir: str) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Create training data from keypoint CSV files
+    
+    Args:
+        good_form_dir: Directory containing good form keypoint CSV files
+        bad_form_dir: Directory containing bad form keypoint CSV files
+        
+    Returns:
+        Tuple of (X, y) where X is features and y is labels (0=good, 1=bad)
+    """
+    import pandas as pd
+    
+    feature_extractor = KeypointFeatureExtractor([
+        "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+        "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+        "left_wrist", "right_wrist", "left_hip", "right_hip",
+        "left_knee", "right_knee", "left_ankle", "right_ankle"
+    ])
+    
+    features = []
+    labels = []
+    
+    # Process good form files
+    if os.path.exists(good_form_dir):
+        for filename in os.listdir(good_form_dir):
+            if filename.endswith('.csv'):
+                filepath = os.path.join(good_form_dir, filename)
+                df = pd.read_csv(filepath)
+                
+                # Extract features for each frame (simplified - in practice you might want to aggregate)
+                for _, row in df.iterrows():
+                    # Convert row to keypoints dict (this is simplified)
+                    keypoints_dict = {}
+                    # In a real implementation, you would properly parse the CSV format
+                    # For now, we'll skip the detailed implementation
+                    pass
+    
+    # Process bad form files similarly
+    # ...
+    
+    # Return dummy data for now - in practice you would implement the full logic
+    X = np.random.rand(100, 64)  # 100 samples, 64 features (32 keypoints * 2 for mean/std)
+    y = np.random.randint(0, 2, 100)  # Random labels
+    
+    return X, y
+
+
+if __name__ == "__main__":
+    # Example usage
+    classifier = DecisionTreeFormClassifier()
+    
+    # Create some dummy training data
+    X_train = np.random.rand(100, 64)
+    y_train = np.random.randint(0, 2, 100)
+    
+    # Train the classifier
+    classifier.train(X_train, y_train)
+    
+    # Save the model
+    classifier.save_model("person-movement-tracker/backend/src/models/decision_tree_form_model.pkl")
+    
+    # Make a prediction
+    dummy_keypoints = {name: (0.5, 0.5) for name in [
+        "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+        "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+        "left_wrist", "right_wrist", "left_hip", "right_hip",
+        "left_knee", "right_knee", "left_ankle", "right_ankle"
+    ]}
+    
+    result = classifier.predict(dummy_keypoints)
+    print(f"Prediction: {result.form_label}, Confidence: {result.confidence:.2f}")
