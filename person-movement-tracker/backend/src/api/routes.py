@@ -792,6 +792,31 @@ async def websocket_record_session(websocket: WebSocket):
     last_frame_time = None
     fps = 30.0  # assumed FPS for timing
     
+    # Initialize pose detector for skeleton overlay
+    pose_detector = MediaPipePoseDetector()
+    
+    def draw_skeleton(frame, landmarks):
+        # Draw connections
+        POSE_CONNECTIONS = [
+            (11, 13), (13, 15), (12, 14), (14, 16), (11, 12), (11, 23), (12, 24),
+            (23, 24), (23, 25), (24, 26), (25, 27), (26, 28), (27, 29), (28, 30),
+            (11, 24), (12, 23)
+        ]
+        for connection in POSE_CONNECTIONS:
+            start_idx, end_idx = connection
+            if start_idx < len(landmarks) and end_idx < len(landmarks):
+                start_point = landmarks[start_idx]
+                end_point = landmarks[end_idx]
+                # Convert normalized coordinates to pixel coordinates
+                start_point_px = (int(start_point.x * frame.shape[1]), int(start_point.y * frame.shape[0]))
+                end_point_px = (int(end_point.x * frame.shape[1]), int(end_point.y * frame.shape[0]))
+                cv2.line(frame, start_point_px, end_point_px, (0, 255, 0), 2)
+        # Draw landmarks
+        for landmark in landmarks:
+            point_px = (int(landmark.x * frame.shape[1]), int(landmark.y * frame.shape[0]))
+            cv2.circle(frame, point_px, 2, (0, 0, 255), -1)
+        return frame
+    
     try:
         while True:
             # Receive message from client
@@ -849,21 +874,30 @@ async def websocket_record_session(websocket: WebSocket):
                         })
                         continue
                     
-                    # Start recording if not already started
-                    if not is_recording:
-                        is_recording = True
-                        start_time = time.time()
-                        last_frame_time = start_time
-                        frames = []  # reset frames
-                        await websocket.send_json({
-                            "type": "recording_started",
-                            "message": "Recording started",
-                            "timestamp": start_time
-                        })
-                    
-                    # Add frame to recording
-                    frames.append(frame)
-                    last_frame_time = time.time()
+                     # Start recording if not already started
+                     if not is_recording:
+                         is_recording = True
+                         start_time = time.time()
+                         last_frame_time = start_time
+                         frames = []  # reset frames
+                         await websocket.send_json({
+                             "type": "recording_started",
+                             "message": "Recording started",
+                             "timestamp": start_time
+                         })
+                     
+                     # Pose estimation for skeleton overlay
+                     try:
+                         pose_result = pose_detector.detectPose(frame)
+                         if pose_result and pose_result.poseLandmarks:
+                             # Draw skeleton on frame
+                             frame = draw_skeleton(frame, pose_result.poseLandmarks)
+                     except Exception as e:
+                         logger.warning(f"Pose estimation failed: {e}")
+                     
+                     # Add frame to recording
+                     frames.append(frame)
+                     last_frame_time = time.time()
                     
                     # Check if recording duration has elapsed
                     elapsed_time = time.time() - start_time
@@ -903,6 +937,10 @@ async def websocket_record_session(websocket: WebSocket):
                                                  "type": "error",
                                                  "message": "Failed to initialize video writer"
                                              })
+                                             # Reset recording state
+                                             is_recording = False
+                                             frames = []
+                                             start_time = None
                                              continue
                                          
                                          for frame in frames:
@@ -916,6 +954,10 @@ async def websocket_record_session(websocket: WebSocket):
                                                  "type": "error",
                                                  "message": "Failed to create video file"
                                              })
+                                             # Reset recording state
+                                             is_recording = False
+                                             frames = []
+                                             start_time = None
                                              continue
                                              
                                          logger.info(f"Video saved successfully to {video_path} ({os.path.getsize(video_path)} bytes)")

@@ -283,7 +283,8 @@ function App() {
                       <h3 className="text-lg font-semibold text-gray-900 mb-3">Video analysis results</h3>
                       <p className="text-sm text-gray-700 mb-2">Form score: {videoAnalysisResult.user_form_score}</p>
                       <p className="text-sm text-gray-700 mb-2">Comparison: {videoAnalysisResult.comparison ? `${videoAnalysisResult.comparison.score_gap > 0 ? 'Lower than reference' : 'Higher than reference'}` : 'Reference not available'}</p>
-                      <p className="text-sm text-gray-700 mb-2">AI guidance: {videoAnalysisResult.ai_guidance}</p>
+                      <p className="text-sm text-gray-700 mb-2">AI guidance: </p>
+                      <div className="text-sm text-gray-700 bg-gray-50 rounded p-3 whitespace-pre-line">{videoAnalysisResult.ai_guidance}</div>
                       {videoAnalysisResult.reference_tutorials && videoAnalysisResult.reference_tutorials.length > 0 && (
                         <div className="mt-3">
                           <span className="text-xs font-semibold text-gray-500 uppercase">Recommended tutorials</span>

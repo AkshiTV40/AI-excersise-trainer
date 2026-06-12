@@ -269,6 +269,13 @@ function YouTubeAnalyzer() {
             </div>
           </div>
 
+          {analysisResult.ai_guidance && (
+            <div className="p-6 bg-purple-50 border border-purple-100 rounded-lg mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Detailed Coaching Guidance</h3>
+              <div className="text-sm text-gray-700 whitespace-pre-line">{analysisResult.ai_guidance}</div>
+            </div>
+          )}
+
           {/* Detailed Frame Analysis */}
           <div className="p-6 bg-gray-50 rounded-lg">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Frame-by-Frame Analysis</h3>

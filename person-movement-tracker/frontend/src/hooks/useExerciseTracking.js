@@ -42,7 +42,8 @@ export function useExerciseTracking() {
             angles: result.analysis.angles || {},
             form_issues: result.analysis.issues || [],
             feedback: result.analysis.issues?.map(i => `${i.severity}: ${i.message}`) || [],
-            form_score: result.analysis.formScore
+            form_score: result.analysis.formScore,
+            summary: result.analysis.summary
           };
           setAnalysis(localAnalysis);
           setLastAnalysis(localAnalysis);
