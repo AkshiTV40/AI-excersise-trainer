@@ -1,0 +1,16 @@
+# Training manifest - exercise form videos
+# Format: label,url
+# Labels: good, bad, good_form, bad_form
+
+# Good form - general exercises
+good,https://www.youtube.com/watch?v=I9fsqKE5XHo
+good,https://www.youtube.com/watch?v=IODxDxX7oi4
+
+# Bad form reference
+bad,https://www.youtube.com/watch?v=IODxDxX7oi4
+
+# Good form - pushups
+good,https://www.youtube.com/watch?v=P-yaD24bUE8
+
+# Bad form - poor squat form reference
+bad,https://www.youtube.com/watch?v=k-0OYcoyASk

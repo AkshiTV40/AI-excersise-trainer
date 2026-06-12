@@ -1,0 +1,17 @@
+# Example video manifest for download_and_train.py
+# Format: label,url
+# Labels: 'good', 'bad', 'good_form', 'bad_form' (case-insensitive)
+# YouTube, Vimeo, and other sources supported (via yt-dlp)
+
+# Good form exercise examples (squats, pushups, form)
+good,https://www.youtube.com/watch?v=5vJiM-Zegc4
+good,https://www.youtube.com/watch?v=jxGagdzrVkI
+good,https://www.youtube.com/watch?v=4Y2K28yxUXU
+
+# Bad form exercise examples
+bad,https://www.youtube.com/watch?v=G8yvk_T2e3A
+bad,https://www.youtube.com/watch?v=Z1-t0TdLK5o
+
+# You can also use direct video URLs:
+# good,https://example.com/good_form_video.mp4
+# bad,https://example.com/bad_form_video.mp4

@@ -42,7 +42,11 @@ dist/
 *.pt
 *.pth
 *.weights
-models/downloads/
+*.pkl
+ models/downloads/
+
+# Data (videos, keypoints, databases)
+data/
 
 # Environment
 .env
