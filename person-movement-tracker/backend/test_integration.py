@@ -16,20 +16,20 @@ async def test_imports():
     print("Testing imports...")
     try:
         from services.youtube_service import YouTubeService
-        print("✓ YouTubeService imported")
+        print("[OK] YouTubeService imported")
         
         from services.video_analysis_service import VideoAnalysisService
-        print("✓ VideoAnalysisService imported")
+        print("[OK] VideoAnalysisService imported")
         
         from models.pose_estimator import MediaPipePoseDetector
-        print("✓ MediaPipePoseDetector imported")
+        print("[OK] MediaPipePoseDetector imported")
         
         from models.exercise_analyzer import ExerciseAnalyzerFactory, ExerciseType
-        print("✓ ExerciseAnalyzerFactory imported")
+        print("[OK] ExerciseAnalyzerFactory imported")
         
         return True
     except ImportError as e:
-        print(f"✗ Import failed: {str(e)}")
+        print(f"[FAIL] Import failed: {str(e)}")
         return False
 
 
@@ -44,23 +44,23 @@ async def test_service_initialization():
         
         # Initialize YouTube service
         youtube_service = YouTubeService()
-        print("✓ YouTubeService initialized")
+        print("[OK] YouTubeService initialized")
         
         # Initialize pose detector
         pose_detector = MediaPipePoseDetector()
-        print("✓ MediaPipePoseDetector initialized")
+        print("[OK] MediaPipePoseDetector initialized")
         
         # Initialize exercise analyzer
-        analyzer = ExerciseAnalyzerFactory.create(ExerciseType.SQUAT)
-        print("✓ ExerciseAnalyzerFactory initialized")
+        analyzer = ExerciseAnalyzerFactory.create_analyzer(ExerciseType.SQUAT, pose_detector)
+        print("[OK] ExerciseAnalyzerFactory initialized")
         
         # Initialize video analysis service
         analysis_service = VideoAnalysisService(pose_detector, analyzer)
-        print("✓ VideoAnalysisService initialized")
+        print("[OK] VideoAnalysisService initialized")
         
         return True
     except Exception as e:
-        print(f"✗ Initialization failed: {str(e)}")
+        print(f"[FAIL] Initialization failed: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
@@ -73,13 +73,13 @@ async def test_exercise_types():
         from models.exercise_analyzer import ExerciseType
         
         exercises = [e.value for e in ExerciseType]
-        print(f"✓ Found {len(exercises)} supported exercise types:")
+        print(f"[OK] Found {len(exercises)} supported exercise types:")
         for ex in exercises:
             print(f"  - {ex}")
         
         return len(exercises) > 0
     except Exception as e:
-        print(f"✗ Exercise type test failed: {str(e)}")
+        print(f"[FAIL] Exercise type test failed: {str(e)}")
         return False
 
 
@@ -97,7 +97,7 @@ async def test_analysis_pipeline():
         
         # Initialize services
         pose_detector = MediaPipePoseDetector()
-        analyzer = ExerciseAnalyzerFactory.create(ExerciseType.SQUAT)
+        analyzer = ExerciseAnalyzerFactory.create_analyzer(ExerciseType.SQUAT, pose_detector)
         analysis_service = VideoAnalysisService(pose_detector, analyzer)
         
         # Run analysis
@@ -106,7 +106,7 @@ async def test_analysis_pipeline():
             exercise_type="squat"
         )
         
-        print(f"✓ Analysis pipeline completed")
+        print(f"[OK] Analysis pipeline completed")
         print(f"  - Total frames: {result.total_frames}")
         print(f"  - Analyzed frames: {result.analyzed_frames}")
         print(f"  - Form score: {result.overall_form_score}%")
@@ -114,7 +114,7 @@ async def test_analysis_pipeline():
         
         return True
     except Exception as e:
-        print(f"✗ Analysis pipeline failed: {str(e)}")
+        print(f"[FAIL] Analysis pipeline failed: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
@@ -139,14 +139,14 @@ async def test_youtube_service_methods():
         
         for method in methods:
             if hasattr(service, method) and callable(getattr(service, method)):
-                print(f"✓ Method {method} exists")
+                print(f"[OK] Method {method} exists")
             else:
-                print(f"✗ Method {method} missing")
+                print(f"[FAIL] Method {method} missing")
                 return False
         
         return True
     except Exception as e:
-        print(f"✗ YouTube service method test failed: {str(e)}")
+        print(f"[FAIL] YouTube service method test failed: {str(e)}")
         return False
 
 
@@ -156,7 +156,7 @@ async def test_config():
     try:
         from config import config
         
-        print(f"✓ Config loaded")
+        print(f"[OK] Config loaded")
         print(f"  - API host: {config.api_host}")
         print(f"  - API port: {config.api_port}")
         print(f"  - Debug mode: {config.debug}")
@@ -164,7 +164,7 @@ async def test_config():
         
         return True
     except Exception as e:
-        print(f"✗ Config test failed: {str(e)}")
+        print(f"[FAIL] Config test failed: {str(e)}")
         return False
 
 
@@ -190,7 +190,7 @@ async def main():
             result = await test_func()
             results.append((test_name, result))
         except Exception as e:
-            print(f"✗ {test_name} crashed: {str(e)}")
+            print(f"[FAIL] {test_name} crashed: {str(e)}")
             results.append((test_name, False))
             import traceback
             traceback.print_exc()
@@ -202,7 +202,7 @@ async def main():
     
     for test_name, passed in results:
         status = "PASSED" if passed else "FAILED"
-        symbol = "✓" if passed else "✗"
+        symbol = "[OK]" if passed else "[FAIL]"
         print(f"{symbol} {test_name}: {status}")
     
     passed_count = sum(1 for _, p in results if p)
@@ -211,14 +211,14 @@ async def main():
     print(f"\nTotal: {passed_count}/{total_count} tests passed")
     
     if passed_count == total_count:
-        print("\n✓ All integration tests passed!")
+        print("\n[OK] All integration tests passed!")
         print("\nYou can now:")
         print("1. Run the backend: python -m src.main")
         print("2. Run the frontend: npm run dev")
         print("3. Test YouTube analysis: test_youtube_analysis.py --url <youtube_url>")
         return 0
     else:
-        print(f"\n✗ {total_count - passed_count} test(s) failed")
+        print(f"\n[FAIL] {total_count - passed_count} test(s) failed")
         return 1
 
 

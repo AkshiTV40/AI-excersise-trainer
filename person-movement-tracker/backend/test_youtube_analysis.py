@@ -62,7 +62,7 @@ async def test_video_analysis():
     print("\n[Test 1] Initializing services...")
     try:
         pose_detector = MediaPipePoseDetector()
-        analyzer = ExerciseAnalyzerFactory.create(ExerciseType.SQUAT)
+        analyzer = ExerciseAnalyzerFactory.create_analyzer(ExerciseType.SQUAT, pose_detector)
         analysis_service = VideoAnalysisService(pose_detector, analyzer)
         print("✓ Services initialized successfully")
     except Exception as e:
