@@ -102,6 +102,39 @@ class PoseDetectorService {
   }
 
   drawPose(canvasCtx, width, height) {
+    const landmarks = this.lastResults?.poseLandmarks;
+    if (!landmarks || landmarks.length === 0) return;
+
+    const connections = [
+      [0, 1], [1, 2], [2, 3], [3, 7], [0, 4], [4, 5], [5, 6], [6, 8],
+      [9, 10], [11, 12], [11, 13], [13, 15], [15, 17], [15, 19], [15, 21],
+      [17, 19], [12, 14], [14, 16], [16, 18], [16, 20], [18, 20], [11, 23],
+      [12, 24], [23, 25], [25, 27], [27, 29], [29, 31], [24, 26], [26, 28],
+      [28, 30], [30, 32]
+    ];
+
+    canvasCtx.strokeStyle = 'rgba(100, 200, 255, 0.7)';
+    canvasCtx.lineWidth = 2;
+    canvasCtx.fillStyle = 'rgba(100, 200, 255, 0.8)';
+
+    for (const [from, to] of connections) {
+      const fromLandmark = landmarks[from];
+      const toLandmark = landmarks[to];
+      if (fromLandmark && toLandmark && fromLandmark.visibility > 0.3 && toLandmark.visibility > 0.3) {
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(fromLandmark.x * width, fromLandmark.y * height);
+        canvasCtx.lineTo(toLandmark.x * width, toLandmark.y * height);
+        canvasCtx.stroke();
+      }
+    }
+
+    for (const landmark of landmarks) {
+      if (landmark && landmark.visibility > 0.3) {
+        canvasCtx.beginPath();
+        canvasCtx.arc(landmark.x * width, landmark.y * height, 4, 0, 2 * Math.PI);
+        canvasCtx.fill();
+      }
+    }
   }
 
   calculateAngle(a, b, c) {

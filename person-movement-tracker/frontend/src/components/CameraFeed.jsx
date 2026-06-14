@@ -6,10 +6,18 @@ const CameraFeed = ({ videoRef, canvasRef, isActive, isProcessing, mode, onFrame
 
   useEffect(() => {
     // Start frame capture when active and in exercise mode
-    if (isActive && mode === 'exercise' && onFrameCapture && canvasRef.current) {
+    if (isActive && mode === 'exercise' && onFrameCapture && canvasRef.current && videoRef.current) {
       captureIntervalRef.current = setInterval(() => {
-        if (canvasRef.current) {
-          onFrameCapture(canvasRef.current);
+        if (canvasRef.current && videoRef.current && videoRef.current.readyState === 4) {
+          const canvas = canvasRef.current;
+          const video = videoRef.current;
+          const ctx = canvas.getContext('2d');
+
+          canvas.width = video.videoWidth || 1280;
+          canvas.height = video.videoHeight || 720;
+
+          ctx.drawImage(video, 0, 0);
+          onFrameCapture(canvas);
         }
       }, 100); // Capture at 10 FPS
     } else {
@@ -24,7 +32,7 @@ const CameraFeed = ({ videoRef, canvasRef, isActive, isProcessing, mode, onFrame
         clearInterval(captureIntervalRef.current);
       }
     };
-  }, [isActive, mode, onFrameCapture]);
+  }, [isActive, mode, onFrameCapture, videoRef]);
 
   return (
     <motion.div 

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { trackExerciseFrame } from '../services/api';
 import useLocalExerciseTracking from './useLocalExerciseTracking';
+import { poseDetector } from '../services/poseDetectorService';
 
 export function useExerciseTracking() {
   const [isExerciseProcessing, setIsExerciseProcessing] = useState(false);
@@ -30,10 +31,9 @@ export function useExerciseTracking() {
         if (!localTracking.isInitialized) {
           await localTracking.initialize();
         }
-        
-        const videoElement = canvas;
-        const result = await localTracking.processFrame(videoElement);
-        
+
+        const result = await localTracking.processFrame(canvas);
+
         if (result && result.analysis) {
           const localAnalysis = {
             exercise: exerciseType,
@@ -47,6 +47,14 @@ export function useExerciseTracking() {
           };
           setAnalysis(localAnalysis);
           setLastAnalysis(localAnalysis);
+
+          // Draw skeleton on canvas
+          if (result.landmarks) {
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              poseDetector.drawPose(ctx, canvas.width, canvas.height);
+            }
+          }
         }
       } else {
         const imageData = canvas.toDataURL('image/jpeg', 0.8);
@@ -62,7 +70,7 @@ export function useExerciseTracking() {
       frameCountRef.current++;
     } catch (error) {
       console.error('Error processing exercise frame:', error);
-      
+
       if (useLocalMode) {
         console.log('Falling back to server-side processing...');
         setUseLocalMode(false);
