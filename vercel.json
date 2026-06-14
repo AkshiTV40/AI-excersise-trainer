@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "buildCommand": "cd person-movement-tracker/frontend && npm install && npm run build",
+  "outputDirectory": "person-movement-tracker/frontend/dist",
+  "installCommand": "npm install",
+  "framework": null,
+  "routes": [
+    {
+      "src": "/assets/(.*)",
+      "dest": "/assets/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}

@@ -7,7 +7,7 @@ const EXERCISES = [
   { id: 'lunge', name: 'Lunge', icon: '🚶', description: 'Leg exercise' },
 ];
 
-function ExerciseSelector({ selectedExercise, onExerciseChange, isTracking, onStartTracking, onStopTracking }) {
+function ExerciseSelector({ selectedExercise, onExerciseChange, isTracking, onStartTracking, onStopTracking, hideControls }) {
   return (
     <motion.div 
       className="card card-hover"
@@ -66,6 +66,7 @@ function ExerciseSelector({ selectedExercise, onExerciseChange, isTracking, onSt
       </div>
 
       {/* Control Buttons */}
+      {!hideControls && (
       <div className="flex space-x-4">
         {!isTracking ? (
           <motion.button
@@ -101,6 +102,7 @@ function ExerciseSelector({ selectedExercise, onExerciseChange, isTracking, onSt
           </motion.button>
         )}
       </div>
+      )}
 
       {/* Tips */}
       <motion.div 

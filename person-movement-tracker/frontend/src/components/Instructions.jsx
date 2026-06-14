@@ -4,36 +4,34 @@ import { motion } from 'framer-motion';
 const Instructions = () => {
   const sections = [
     {
-      title: "🎯 Getting Started",
+      title: "Getting Started",
       content: [
-        "Welcome to the Person Movement Tracker! This app analyzes your exercise form using AI-powered pose detection.",
-        "Choose between Live Exercise Analysis or YouTube Video Comparison to improve your technique."
+        "Welcome to the AI Exercise Trainer! This app analyses your exercise form using AI-powered pose detection.",
+        "Use Live Analysis for real-time form feedback, Upload Clip to analyse a saved video, or YouTube Compare to compare your form with professional technique."
       ]
     },
     {
-      title: "📹 Live Exercise Analysis",
+      title: "Live Exercise Analysis",
       content: [
-        "1. Click 'Exercise Analysis' in the main menu",
-        "2. Select your exercise type (Push-up, Squat, Lunge, or Plank)",
-        "3. Click 'Start Recording' and perform your exercise",
-        "4. Record for 5-15 seconds of continuous movement",
-        "5. Click 'Stop Recording' then 'Analyze Recorded Exercise'",
-        "6. View your detailed form analysis and feedback"
+        "1. Click 'Live Analysis' tab",
+        "2. Select your exercise (Squat, Push-up, or Lunge)",
+        "3. Click 'Start Tracking' and perform your exercise",
+        "4. Watch real-time form feedback and rep count",
+        "5. Click 'Stop Tracking' when done"
       ]
     },
     {
-      title: "📺 YouTube Comparison",
+      title: "Upload Clip Analysis",
       content: [
-        "1. Go to the 'YouTube Comparison' tab",
-        "2. Copy a professional exercise video URL from YouTube",
-        "3. Paste the URL in the input field",
-        "4. Select the matching exercise type",
-        "5. Click 'Analyze YouTube Video'",
-        "6. Compare your form with professional technique"
+        "1. Click 'Upload Clip' tab",
+        "2. Select your exercise type",
+        "3. Choose a 5-30 second video file from your device",
+        "4. Optionally paste a YouTube reference URL for comparison",
+        "5. Click 'Analyse Clip' to get detailed AI coaching feedback"
       ]
     },
     {
-      title: "💡 Tips for Best Results",
+      title: "Tips for Best Results",
       content: [
         "• Ensure good, even lighting in your exercise area",
         "• Wear form-fitting clothing for better pose detection",
@@ -44,7 +42,7 @@ const Instructions = () => {
       ]
     },
     {
-      title: "📊 Understanding Your Results",
+      title: "Understanding Your Results",
       content: [
         "• **Form Score**: Percentage rating (85%+ = Excellent, 70-84% = Good, <70% = Needs Work)",
         "• **Rep Count**: Number of completed repetitions detected",
@@ -55,7 +53,7 @@ const Instructions = () => {
       ]
     },
     {
-      title: "🎥 Example Videos",
+      title: "Example Videos",
       content: [
         "**Push-ups:**",
         "• Perfect Form: https://www.youtube.com/watch?v=IODxDxX7oi4",
@@ -73,7 +71,7 @@ const Instructions = () => {
       ]
     },
     {
-      title: "🔧 Troubleshooting",
+      title: "Troubleshooting",
       content: [
         "**Camera Issues:**",
         "• Grant camera permissions when prompted",
@@ -102,10 +100,10 @@ const Instructions = () => {
         className="text-center mb-8"
       >
         <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          📚 Instructions & Guide
+          Instructions & Guide
         </h1>
         <p className="text-xl text-gray-600">
-          Learn how to use the Person Movement Tracker for optimal exercise form analysis
+          Learn how to use the AI Exercise Trainer for optimal exercise form analysis
         </p>
       </motion.div>
 
