@@ -89,10 +89,11 @@ const RecordSession = ({ selectedExercise = 'squat' }) => {
     stop();
   }, [stop]);
 
-  const durationLabel = Math.round(sessionComplete?.duration_seconds ?? sessionComplete?.duration ?? 0);
-  const videoHref = sessionComplete?.video_url?.startsWith('http')
-    ? sessionComplete.video_url
-    : `${import.meta.env.VITE_API_URL || ''}${sessionComplete.video_url}`;
+   const durationLabel = Math.round(sessionComplete?.duration_seconds ?? sessionComplete?.duration ?? 0);
+   const videoUrl = sessionComplete?.video_url;
+   const videoHref = videoUrl?.startsWith('http')
+     ? videoUrl
+     : `${import.meta.env.VITE_API_URL || ''}${videoUrl || ''}`;
 
   return (
     <motion.div
