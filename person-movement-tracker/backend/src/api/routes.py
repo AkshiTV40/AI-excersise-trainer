@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from typing import List, Optional, Dict, Any
 import asyncio
 import json
@@ -8,18 +9,13 @@ import logging
 import os
 import tempfile
 import time
+from uuid import uuid4
 import numpy as np
 import cv2
+from ..database import init_db, get_db_connection, add_video, get_video, get_videos, delete_video, update_video_analysis
+from ..api.schemas import Video, VideoCreate, VideoList
+from ..utils.video_processor import VideoStream
 from pathlib import Path
-
-try:
-    from ..database import init_db, get_db_connection, add_video, get_video, get_videos, delete_video
-    from ..api.schemas import Video, VideoCreate, VideoList
-    from ..utils.video_processor import VideoStream
-except ImportError:
-    from database import init_db, get_db_connection, add_video, get_video, get_videos, delete_video
-    from api.schemas import Video, VideoCreate, VideoList
-    from utils.video_processor import VideoStream
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +32,7 @@ try:
     from ..models.pose_estimator import MediaPipePoseDetector
     from ..models.exercise_analyzer import ExerciseAnalyzerFactory, ExerciseType
     from .schemas import (
-        TrackingRequest, TrackingResponse, ModelInfo, 
+        TrackingRequest, TrackingResponse, ModelInfo,
         DeviceInfo, SessionStats, ExerciseTrackingRequest,
         ExerciseTrackingResponse
     )
@@ -49,7 +45,7 @@ except ImportError:
     from models.pose_estimator import MediaPipePoseDetector
     from models.exercise_analyzer import ExerciseAnalyzerFactory, ExerciseType
     from api.schemas import (
-        TrackingRequest, TrackingResponse, ModelInfo, 
+        TrackingRequest, TrackingResponse, ModelInfo,
         DeviceInfo, SessionStats, ExerciseTrackingRequest,
         ExerciseTrackingResponse
     )
@@ -76,21 +72,25 @@ youtube_service = YouTubeService()
 video_analysis_service = None
 guidance_service = None
 background_form_detector = None
+exercise_form_tracker = None
+
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
+    init_db()
     await tracking_service.initialize()
-    global exercise_tracking_service, video_analysis_service, background_form_detector
+    global exercise_tracking_service, video_analysis_service, background_form_detector, guidance_service
     from ..services.exercise_tracking_service import ExerciseTrackingService
+
     exercise_tracking_service = ExerciseTrackingService()
     await exercise_tracking_service.initialize()
-    
+
     # Initialize video analysis service with default SQUAT analyzer
     pose_detector = MediaPipePoseDetector()
     analyzer = ExerciseAnalyzerFactory.create_analyzer(ExerciseType.SQUAT, pose_detector)
     video_analysis_service = VideoAnalysisService(pose_detector, analyzer)
-    
+
     # Initialize background form detector with YOLO pose and classifier
     try:
         from ..services.background_form_detector import BackgroundFormDetector
@@ -111,6 +111,7 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Could not initialize GuidanceService: {e}")
         guidance_service = None
+
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -143,6 +144,7 @@ async def root():
     </html>
     """
 
+
 @app.post("/api/track", response_model=TrackingResponse)
 async def track_persons(request: TrackingRequest):
     """Process image/video frame for person tracking"""
@@ -152,7 +154,7 @@ async def track_persons(request: TrackingRequest):
         model_type=request.model_type,
         enable_tracking=request.enable_tracking
     )
-    
+
     if result['success']:
         return TrackingResponse(
             success=True,
@@ -168,21 +170,22 @@ async def track_persons(request: TrackingRequest):
             error=result['error']
         )
 
+
 @app.post("/api/track/file")
 async def track_from_file(
-    file: UploadFile = File(...),
-    model_type: Optional[str] = Form("yolov8"),
-    enable_tracking: bool = Form(True)
+        file: UploadFile = File(...),
+        model_type: Optional[str] = Form("yolov8"),
+        enable_tracking: bool = Form(True)
 ):
     """Upload image file for tracking"""
     try:
         # Read file
         contents = await file.read()
-        
+
         # Convert to base64
         import base64
         image_data = base64.b64encode(contents).decode('utf-8')
-        
+
         # Process
         result = await tracking_service.process_frame(
             image_data=image_data,
@@ -190,25 +193,23 @@ async def track_from_file(
             model_type=ModelType(model_type) if model_type else None,
             enable_tracking=enable_tracking
         )
-        
+
         return JSONResponse(content=result)
-    
+
     except Exception as e:
         return JSONResponse(
             status_code=500,
             content={'error': str(e)}
         )
 
+
 @app.get("/api/models", response_model=List[ModelInfo])
 async def get_models():
     """Get available models"""
-    try:
-        from ..models.detector_factory import DetectorFactory
-    except ImportError:
-        from models.detector_factory import DetectorFactory
-    
+    from ..models.detector_factory import DetectorFactory
+
     models = DetectorFactory.get_available_models()
-    
+
     return [
         ModelInfo(
             name=model_type.value,
@@ -218,30 +219,36 @@ async def get_models():
         for model_type, info in models.items()
     ]
 
+
 @app.get("/api/device", response_model=DeviceInfo)
 async def get_device_info():
     """Get device information and capabilities"""
     import torch
-    
+
     device_info = {
         'device': str(config.device),
         'cuda_available': torch.cuda.is_available(),
         'mps_available': hasattr(torch.backends, 'mps') and torch.backends.mps.is_available(),
         'cpu_count': torch.get_num_threads()
     }
-    
+
     if torch.cuda.is_available():
         device_info['cuda_device_count'] = torch.cuda.device_count()
         device_info['cuda_device_name'] = torch.cuda.get_device_name(0)
-    
+
     return DeviceInfo(**device_info)
+
 
 @app.post("/api/guidance/motion-to-exercise")
 async def guidance_motion_to_exercise(payload: Dict[str, Any]):
     """Convert motion keypoints into words, infer exercise, and provide analysis guidance."""
     global guidance_service
     if guidance_service is None:
-        guidance_service = GuidanceService()
+        try:
+            from ..services.guidance_service import GuidanceService
+            guidance_service = GuidanceService()
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Guidance service unavailable: {str(e)}")
 
     keypoints = payload.get("keypoints") or payload.get("pose_keypoints")
     additional_context = payload.get("context")
@@ -262,36 +269,38 @@ async def guidance_motion_to_exercise(payload: Dict[str, Any]):
         "token_type": guidance_service.get_token_guidance()
     }
 
+
 @app.websocket("/ws/track")
 async def websocket_track(websocket: WebSocket):
     """WebSocket for real-time tracking"""
     await websocket.accept()
-    
+
     session_id = f"ws_{websocket.client.host}"
-    
+
     try:
         while True:
             # Receive frame
             data = await websocket.receive_json()
             image_data = data.get('image')
-            
+
             if not image_data:
                 continue
-            
+
             # Process frame
             result = await tracking_service.process_frame(
                 image_data=image_data,
                 session_id=session_id,
                 enable_tracking=True
             )
-            
+
             # Send result
             await websocket.send_json(result)
-    
+
     except WebSocketDisconnect:
         print(f"WebSocket disconnected: {session_id}")
     except Exception as e:
         await websocket.send_json({'error': str(e)})
+
 
 @app.get("/api/session/{session_id}/stats", response_model=SessionStats)
 async def get_session_stats(session_id: str):
@@ -304,10 +313,12 @@ async def get_session_stats(session_id: str):
         total_tracks=5
     )
 
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "person-tracker"}
+
 
 # Exercise Tracking Endpoints
 
@@ -319,14 +330,14 @@ async def track_exercise(request: ExerciseTrackingRequest):
             success=False,
             error="Exercise tracking service not initialized"
         )
-    
+
     result = await exercise_tracking_service.process_frame(
         image_data=request.image,
         session_id=request.session_id,
         exercise_type=request.exercise_type,
         enable_tracking=request.enable_tracking
     )
-    
+
     if result['success']:
         return ExerciseTrackingResponse(
             success=True,
@@ -341,11 +352,12 @@ async def track_exercise(request: ExerciseTrackingRequest):
             error=result.get('error')
         )
 
+
 @app.post("/api/exercise/track/file")
 async def track_exercise_from_file(
-    file: UploadFile = File(...),
-    exercise_type: str = Form("squat"),
-    enable_tracking: bool = Form(True)
+        file: UploadFile = File(...),
+        exercise_type: str = Form("squat"),
+        enable_tracking: bool = Form(True)
 ):
     """Upload image file for exercise tracking"""
     if not exercise_tracking_service:
@@ -353,15 +365,15 @@ async def track_exercise_from_file(
             status_code=500,
             content={'error': 'Exercise tracking service not initialized'}
         )
-    
+
     try:
         # Read file
         contents = await file.read()
-        
+
         # Convert to base64
         import base64
         image_data = base64.b64encode(contents).decode('utf-8')
-        
+
         # Process
         result = await exercise_tracking_service.process_frame(
             image_data=image_data,
@@ -369,21 +381,22 @@ async def track_exercise_from_file(
             exercise_type=ExerciseType(exercise_type),
             enable_tracking=enable_tracking
         )
-        
+
         return JSONResponse(content=result)
-    
+
     except Exception as e:
         return JSONResponse(
             status_code=500,
             content={'error': str(e)}
         )
 
+
 @app.post("/api/exercise/track/video")
 async def track_exercise_video(
-    file: UploadFile = File(...),
-    exercise_type: str = Form("squat"),
-    reference_url: Optional[str] = Form(None),
-    max_seconds: int = Form(10)
+        file: UploadFile = File(...),
+        exercise_type: str = Form("squat"),
+        reference_url: Optional[str] = Form(None),
+        max_seconds: int = Form(10)
 ):
     """Upload a 5-10 second video and run exercise form analysis plus comparison feedback"""
     if not video_analysis_service:
@@ -474,14 +487,15 @@ async def track_exercise_video(
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
+
 @app.get("/api/exercise/types")
 async def get_exercise_types():
     """Get supported exercise types"""
     if not exercise_tracking_service:
         return {"exercises": []}
-    
+
     exercises = exercise_tracking_service.get_supported_exercises()
-    
+
     return {
         "exercises": [
             {
@@ -492,12 +506,13 @@ async def get_exercise_types():
         ]
     }
 
+
 @app.post("/api/exercise/reset")
 async def reset_exercise_tracking(exercise_type: str):
     """Reset exercise tracking for a specific exercise"""
     if not exercise_tracking_service:
         return {"success": False, "error": "Service not initialized"}
-    
+
     try:
         ex_type = ExerciseType(exercise_type)
         exercise_tracking_service.reset_analyzer(ex_type)
@@ -512,11 +527,11 @@ async def get_video_file(video_id: int):
     video_record = get_video(video_id)
     if not video_record:
         raise HTTPException(status_code=404, detail="Video not found")
-    
-    video_path = RECORDINGS_DIR / video_record['filename']
+
+    video_path = _video_record_path(video_record)
     if not video_path.exists():
         raise HTTPException(status_code=404, detail="Video file not found on disk")
-    
+
     return FileResponse(
         path=video_path,
         media_type='video/mp4',
@@ -524,13 +539,36 @@ async def get_video_file(video_id: int):
     )
 
 
+@app.delete("/api/videos/{video_id}")
+async def delete_video_file(video_id: int):
+    """Delete a video metadata row and its MP4 file."""
+    init_db()
+    video_record = get_video(video_id)
+    if not video_record:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    video_path = _video_record_path(video_record)
+    if video_path.exists():
+        try:
+            os.remove(video_path)
+        except OSError as exc:
+            logger.exception("Failed to delete video file %s", video_path)
+            raise HTTPException(status_code=500, detail=f"Failed to delete video file: {exc}")
+
+    deleted = delete_video(video_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    return {"success": True, "video_id": video_id, "deleted_file": str(video_path)}
+
+
 # Background Form Detection Endpoints
 
 @app.post("/api/background/analyze")
 async def analyze_background_form(
-    file: UploadFile = File(...),
-    exercise_type: str = Form("squat"),
-    skip_frames: int = Form(3)
+        file: UploadFile = File(...),
+        exercise_type: str = Form("squat"),
+        skip_frames: int = Form(3)
 ):
     """Upload video for background form analysis using YOLO + XGBoost classifier"""
     if not background_form_detector:
@@ -538,58 +576,58 @@ async def analyze_background_form(
             status_code=500,
             content={'error': 'Background form detector not initialized'}
         )
-    
+
     import base64
     import cv2
-    
+
     temp_path = os.path.join(tempfile.gettempdir(), f"background_analyze_{int(time.time() * 1000)}.mp4")
-    
+
     try:
         # Save upload to disk
         contents = await file.read()
         with open(temp_path, 'wb') as out_file:
             out_file.write(contents)
-        
+
         # Extract frames from video
         cap = cv2.VideoCapture(temp_path)
         frames = []
-        
+
         frame_idx = 0
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
-            
+
             if frame_idx % skip_frames == 0:
                 frame_resized = cv2.resize(frame, (640, 480))
                 frames.append(frame_resized)
-            
+
             frame_idx += 1
-        
+
         cap.release()
-        
+
         if not frames:
             return JSONResponse(
                 status_code=400,
                 content={'error': 'No frames extracted from video'}
             )
-        
+
         # Analyze frames
         analysis_results = background_form_detector.analyze_video_frames(frames, skip_frames=1)
-        
+
         # Get aggregate analysis
         aggregate = background_form_detector.get_aggregate_analysis(analysis_results)
-        
+
         # Get sample keypoints and angles from first valid result
         sample_keypoints = {}
         sample_angles = {}
-        
+
         for result in analysis_results:
             if result.keypoints:
                 sample_keypoints = {k: list(v) for k, v in result.keypoints.items()}
                 sample_angles = result.angles
                 break
-        
+
         return {
             'success': True,
             'exercise_type': exercise_type,
@@ -598,7 +636,7 @@ async def analyze_background_form(
             'sample_keypoints': sample_keypoints,
             'sample_angles': sample_angles
         }
-    
+
     except Exception as e:
         logger.error(f"Error in background form analysis: {e}")
         return JSONResponse(
@@ -612,8 +650,8 @@ async def analyze_background_form(
 
 @app.post("/api/background/analyze/frame")
 async def analyze_single_frame_background(
-    image: UploadFile = File(...),
-    exercise_type: str = Form("squat")
+        image: UploadFile = File(...),
+        exercise_type: str = Form("squat")
 ):
     """Analyze a single image frame for background form detection"""
     if not background_form_detector:
@@ -621,25 +659,25 @@ async def analyze_single_frame_background(
             status_code=500,
             content={'error': 'Background form detector not initialized'}
         )
-    
+
     try:
         contents = await image.read()
         nparr = np.frombuffer(contents, np.uint8)
         frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
+
         if frame is None:
             return JSONResponse(
                 status_code=400,
                 content={'error': 'Could not decode image'}
             )
-        
+
         frame_resized = cv2.resize(frame, (640, 480))
         result = background_form_detector.analyze_frame(frame_resized, frame_idx=0)
-        
+
         keypoints_dict = {}
         if result.keypoints:
             keypoints_dict = {k: list(v) for k, v in result.keypoints.items()}
-        
+
         return {
             'success': True,
             'exercise_type': exercise_type,
@@ -651,7 +689,7 @@ async def analyze_single_frame_background(
                 'is_good_form': result.form_classification.is_good_form if result.form_classification else None
             } if result.form_classification else None
         }
-    
+
     except Exception as e:
         logger.error(f"Error in single frame analysis: {e}")
         return JSONResponse(
@@ -662,8 +700,8 @@ async def analyze_single_frame_background(
 
 @app.post("/api/guidance/test")
 async def test_guidance(
-    exercise_type: str = Form("squat"),
-    form_score: float = Form(72.0)
+        exercise_type: str = Form("squat"),
+        form_score: float = Form(72.0)
 ):
     """Test Qwen guidance generation and token configuration."""
     global guidance_service
@@ -726,31 +764,32 @@ async def get_background_detector_status():
             'status': 'not_initialized',
             'message': 'Background form detector not available'
         }
-    
+
     return {
         'status': 'ready',
         'model': 'yolov8n-pose',
         'classifier': 'decision_tree' if background_form_detector.classifier and background_form_detector.classifier.is_trained else 'heuristic'
     }
 
+
 @app.websocket("/ws/exercise/track")
 async def websocket_exercise_track(websocket: WebSocket):
     """WebSocket for real-time exercise tracking"""
     await websocket.accept()
-    
+
     session_id = f"ws_exercise_{websocket.client.host}"
     current_exercise_type = None
-    
+
     try:
         while True:
             # Receive frame
             data = await websocket.receive_json()
             image_data = data.get('image')
             exercise_type_str = data.get('exercise_type', 'squat')
-            
+
             if not image_data:
                 continue
-            
+
             # Reset if exercise type changed
             if current_exercise_type != exercise_type_str:
                 current_exercise_type = exercise_type_str
@@ -758,7 +797,7 @@ async def websocket_exercise_track(websocket: WebSocket):
                     exercise_tracking_service.reset_analyzer(ExerciseType(exercise_type_str))
                 except ValueError:
                     pass
-            
+
             # Process frame
             result = await exercise_tracking_service.process_frame(
                 image_data=image_data,
@@ -766,123 +805,482 @@ async def websocket_exercise_track(websocket: WebSocket):
                 exercise_type=ExerciseType(exercise_type_str),
                 enable_tracking=True
             )
-            
+
             # Send result
             await websocket.send_json(result)
-    
+
     except WebSocketDisconnect:
         print(f"WebSocket disconnected: {session_id}")
     except Exception as e:
         await websocket.send_json({'error': str(e)})
 
-    
-    # If youtube_routes module is present, wire its routes too
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    return value
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(_json_safe(value), ensure_ascii=False)
+
+
+def _video_record_path(video_record: Dict[str, Any]) -> Path:
+    return RECORDINGS_DIR / video_record['filename']
+
+
+def _safe_filename_part(value: Any) -> str:
+    text = str(value or 'unknown')
+    return ''.join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in text)
+
+
+def _parse_reference_video_id(value: Any) -> Optional[int]:
+    if value in (None, ''):
+        return None
     try:
-        from .youtube_routes import setup_youtube_routes
-        setup_youtube_routes(app)
-    except Exception as e:
-        logger.info(f"YouTube route registration skipped: {e}")
+        return int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"Invalid reference_video_id: {value}")
+
+
+def _validate_recording_config(exercise_type_value: Any, duration_value: Any) -> tuple[str, int]:
+    try:
+        exercise_type = ExerciseType(exercise_type_value).value
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid exercise type: {exercise_type_value}. Valid types are: {[e.value for e in ExerciseType]}")
+
+    try:
+        duration_seconds = int(float(duration_value))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="duration_seconds must be a number")
+
+    duration_seconds = max(1, min(duration_seconds, 120))
+    return exercise_type, duration_seconds
+
+
+def _resolve_video_input(video_input: Any) -> Path:
+    video_id = _parse_reference_video_id(video_input)
+    if video_id is not None:
+        video_record = get_video(video_id)
+        if not video_record:
+            raise HTTPException(status_code=404, detail=f"Video not found: {video_input}")
+        return _video_record_path(video_record)
+
+    video_path = Path(str(video_input))
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail=f"Video file not found: {video_input}")
+    return video_path
+
+
+def _write_frames_to_video(frames: List[np.ndarray], video_path: Path, fps: float) -> tuple:
+    height, width = frames[0].shape[:2]
+    writer_fps = max(float(fps or 10.0), 1.0)
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(str(video_path), fourcc, writer_fps, (width, height))
+
+    if not out.isOpened():
+        raise RuntimeError(f"Failed to open VideoWriter for {video_path}")
+
+    try:
+        for frame in frames:
+            out.write(frame)
+    finally:
+        out.release()
+
+    if not video_path.exists() or video_path.stat().st_size == 0:
+        raise RuntimeError(f"Video file was not created at {video_path}")
+
+    return width, height, writer_fps
+
+
+def _analysis_to_dict(analysis_result: Any) -> Optional[Dict[str, Any]]:
+    if analysis_result is None:
+        return None
+
+    return {
+        "total_frames": int(analysis_result.total_frames),
+        "analyzed_frames": int(analysis_result.analyzed_frames),
+        "duration": float(analysis_result.duration),
+        "fps": float(analysis_result.fps),
+        "detected_exercise": analysis_result.detected_exercise,
+        "overall_form_score": float(analysis_result.overall_form_score),
+        "summary": _json_safe(analysis_result.summary),
+        "frame_analyses": _json_safe(analysis_result.frame_analyses),
+    }
+
+
+def _feedback_from_analysis(analysis_result: Any, exercise_type: str) -> str:
+    if analysis_result is None:
+        return "Video saved, but analysis service was not available."
+
+    if guidance_service and guidance_service.is_ready:
+        user_summary = {
+            "overall_form_score": float(analysis_result.overall_form_score),
+            "summary": analysis_result.summary,
+            "form_issues": [
+                issue for frame in analysis_result.frame_analyses for issue in frame.get('issues', [])
+            ]
+        }
+        return guidance_service.generate_guidance(
+            exercise_type=exercise_type,
+            user_summary=user_summary,
+            reference_summary=None
+        )
+
+    score = float(analysis_result.overall_form_score)
+    if score >= 85:
+        verdict = "excellent"
+    elif score >= 70:
+        verdict = "good"
+    elif score >= 50:
+        verdict = "needs improvement"
+    else:
+        verdict = "needs major correction"
+
+    summary = analysis_result.summary or {}
+    return (
+        f"Overall Summary: Your {exercise_type} form was {verdict} "
+        f"with an average score of {score:.1f}% across "
+        f"{analysis_result.analyzed_frames}/{analysis_result.total_frames} analyzed frames.\n\n"
+        f"Summary: {summary.get('status', 'N/A')}\n\n"
+        f"Recommendations: {', '.join(summary.get('recommendations', []))}"
+    )
+
+
+def _get_exercise_form_tracker():
+    global exercise_form_tracker
+    if exercise_form_tracker is None:
+        from ..services.exercise_form_tracker import ExerciseFormTracker
+        exercise_form_tracker = ExerciseFormTracker(device=str(config.device))
+    return exercise_form_tracker
+
+
+# Helper function to process recorded video (used in WebSocket)
+async def _process_recorded_video(
+        frames: List[np.ndarray],
+        session_id: str,
+        exercise_type: str,
+        start_time: float,
+        fps: float,
+        duration_seconds: Optional[float] = None,
+        reference_video_id: Optional[int] = None,
+        reference_video_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """Save live video to disk, store metadata in SQLite3, analyze, and optionally compare."""
+    init_db()
+    if not frames:
+        raise RuntimeError("No frames recorded")
+
+    reference_video_id = _parse_reference_video_id(reference_video_id)
+    timestamp = int(start_time or time.time())
+    filename = f"session_{_safe_filename_part(session_id)}_{_safe_filename_part(exercise_type)}_{timestamp}_{uuid4().hex[:8]}.mp4"
+    video_path = RECORDINGS_DIR / filename
+
+    elapsed_time = max(time.time() - start_time, 0.001) if start_time else 0.001
+    actual_fps = len(frames) / elapsed_time if elapsed_time > 0 else fps
+    width, height, writer_fps = _write_frames_to_video(frames, video_path, actual_fps)
+    duration = len(frames) / writer_fps if writer_fps > 0 else elapsed_time
+
+    video_id = add_video(
+        filename=filename,
+        original_filename=f"exercise_session_{exercise_type}_{timestamp}.mp4",
+        exercise_type=exercise_type,
+        file_size=video_path.stat().st_size,
+        duration=duration,
+        width=width,
+        height=height,
+        description=f"Live recorded session for {exercise_type}",
+        source="live",
+        session_id=session_id,
+        analysis_status="processing",
+        reference_video_id=reference_video_id
+    )
+
+    analysis_result = None
+    analysis_payload = None
+    feedback_text = "Video saved, but analysis service was not available."
+    analysis_error = None
+
+    if video_analysis_service:
+        try:
+            analysis_result = await video_analysis_service.analyze_video_file(
+                video_path=str(video_path),
+                exercise_type=exercise_type,
+                max_seconds=max(1, int(duration_seconds or duration or 30)),
+                sample_rate=2.0
+            )
+            analysis_payload = _analysis_to_dict(analysis_result)
+            feedback_text = _feedback_from_analysis(analysis_result, exercise_type)
+        except Exception as e:
+            logger.exception("Error analyzing recorded live session")
+            analysis_error = str(e)
+            feedback_text = f"Video saved, but analysis failed: {e}"
+    else:
+        analysis_error = "Video analysis service is not initialized"
+
+    comparison_report = None
+    comparison_error = None
+    if reference_video_id or reference_video_path:
+        try:
+            tracker = _get_exercise_form_tracker()
+            reference_path = None
+            parsed_reference_video_id = _parse_reference_video_id(reference_video_id)
+            if parsed_reference_video_id:
+                reference_record = get_video(parsed_reference_video_id)
+                if not reference_record:
+                    comparison_error = f"Reference video not found: {parsed_reference_video_id}"
+                else:
+                    reference_path = str(_video_record_path(reference_record))
+            elif reference_video_path:
+                resolved_reference_path = Path(reference_video_path)
+                if not resolved_reference_path.exists():
+                    comparison_error = f"Reference video file not found: {reference_video_path}"
+                else:
+                    reference_path = str(resolved_reference_path)
+
+            if reference_path and comparison_error is None:
+                comparison_report = tracker.compare_videos(
+                    reference_video_path=reference_path,
+                    user_video_path=str(video_path),
+                    max_frames=120,
+                    sample_rate_hz=2.0,
+                    motion_select=True,
+                    motion_top_k=60,
+                    upscale=(640, 480)
+                )
+        except Exception as e:
+            logger.exception("Error comparing recorded live session")
+            comparison_error = str(e)
+
+    analysis_document = {
+        "analysis": analysis_payload,
+        "comparison": comparison_report,
+        "feedback": feedback_text,
+        "video_id": video_id,
+        "source": "live",
+        "session_id": session_id,
+        "analysis_error": analysis_error,
+        "comparison_error": comparison_error,
+    }
+    update_video_analysis(
+        video_id,
+        "completed" if analysis_error is None else "failed",
+        _json_dumps(analysis_document)
+    )
+
+    return {
+        "video_id": video_id,
+        "video_url": f"/api/videos/{video_id}",
+        "exercise_type": exercise_type,
+        "duration": round(duration, 3),
+        "duration_seconds": round(duration, 3),
+        "frames_processed": len(frames),
+        "actual_fps": round(writer_fps, 3),
+        "width": width,
+        "height": height,
+        "source": "live",
+        "session_id": session_id,
+        "analysis": analysis_payload or {"overall_form_score": None, "summary": {}},
+        "comparison": comparison_report,
+        "feedback": feedback_text,
+        "analysis_status": "completed" if analysis_error is None else "failed",
+    }
+
+
+@app.post("/api/exercise/compare")
+async def compare_form_videos(payload: Dict[str, Any]):
+    """Compare two saved videos or local video paths using the form tracker."""
+    reference_input = payload.get("reference_video") or payload.get("reference_video_id")
+    user_input = payload.get("user_video") or payload.get("user_video_id")
+    exercise_type = payload.get("exercise_type", "squat")
+
+    if not reference_input or not user_input:
+        raise HTTPException(status_code=400, detail="Missing reference_video and user_video")
+
+    tracker = _get_exercise_form_tracker()
+    reference_path = _resolve_video_input(reference_input)
+    user_path = _resolve_video_input(user_input)
+
+    report = tracker.compare_videos(
+        reference_video_path=str(reference_path),
+        user_video_path=str(user_path),
+        max_frames=int(payload.get("max_frames", 120)),
+        sample_rate_hz=float(payload.get("sample_rate_hz", 2.0)),
+        motion_select=bool(payload.get("motion_select", True)),
+        motion_top_k=int(payload.get("motion_top_k", 60)),
+        upscale=tuple(payload["upscale"]) if payload.get("upscale") else (640, 480),
+        save_overlays=bool(payload.get("save_overlays", False)),
+        overlays_dir=payload.get("overlays_dir")
+    )
+
+    return {
+        "success": True,
+        "reference_video": str(reference_path),
+        "user_video": str(user_path),
+        "exercise_type": exercise_type,
+        "report": _json_safe(report)
+    }
+
+
+@app.post("/api/exercise/compare/video-ids")
+async def compare_saved_videos(
+        reference_video_id: int = Form(...),
+        user_video_id: int = Form(...),
+        exercise_type: str = Form("squat"),
+        max_frames: int = Form(120),
+        sample_rate_hz: float = Form(2.0)
+):
+    """Compare two videos already saved in SQLite3."""
+    reference_record = get_video(reference_video_id)
+    user_record = get_video(user_video_id)
+
+    if not reference_record:
+        raise HTTPException(status_code=404, detail=f"Reference video not found: {reference_video_id}")
+    if not user_record:
+        raise HTTPException(status_code=404, detail=f"User video not found: {user_video_id}")
+
+    tracker = _get_exercise_form_tracker()
+    report = tracker.compare_videos(
+        reference_video_path=str(_video_record_path(reference_record)),
+        user_video_path=str(_video_record_path(user_record)),
+        max_frames=max_frames,
+        sample_rate_hz=sample_rate_hz,
+        motion_select=True,
+        motion_top_k=min(60, max_frames),
+        upscale=(640, 480)
+    )
+
+    return {
+        "success": True,
+        "reference_video_id": reference_video_id,
+        "user_video_id": user_video_id,
+        "exercise_type": exercise_type,
+        "report": _json_safe(report)
+    }
 
 
 @app.websocket("/ws/record-session")
 async def websocket_record_session(websocket: WebSocket):
     """WebSocket for recording exercise sessions and providing feedback"""
     await websocket.accept()
-    
-    # Session ID for logging
-    session_id = f"ws_record_{websocket.client.host}"
-    
+
+    session_id = f"ws_record_{_safe_filename_part(websocket.client.host)}"
+
     # Recording state
     is_recording = False
+    # YOLO-based offline analyzer (video-based compare)
+    # NOTE: Live overlay currently uses YOLO pose; analysis uses VideoAnalysisService.
+
     frames = []
     start_time = None
     exercise_type = "squat"  # default
     duration_seconds = 15    # default
-    last_frame_time = None
-    fps = 30.0  # assumed FPS for timing
-    
-    # Initialize pose detector for skeleton overlay
-    pose_detector = MediaPipePoseDetector()
-    
-    def draw_skeleton(frame, landmarks):
-        # Draw connections
-        POSE_CONNECTIONS = [
-            (11, 13), (13, 15), (12, 14), (14, 16), (11, 12), (11, 23), (12, 24),
-            (23, 24), (23, 25), (24, 26), (25, 27), (26, 28), (27, 29), (28, 30),
-            (11, 24), (12, 23)
-        ]
-        for connection in POSE_CONNECTIONS:
-            start_idx, end_idx = connection
-            if start_idx < len(landmarks) and end_idx < len(landmarks):
-                start_point = landmarks[start_idx]
-                end_point = landmarks[end_idx]
-                # Convert normalized coordinates to pixel coordinates
-                start_point_px = (int(start_point.x * frame.shape[1]), int(start_point.y * frame.shape[0]))
-                end_point_px = (int(end_point.x * frame.shape[1]), int(end_point.y * frame.shape[0]))
-                cv2.line(frame, start_point_px, end_point_px, (0, 255, 0), 2)
-        # Draw landmarks
-        for landmark in landmarks:
-            point_px = (int(landmark.x * frame.shape[1]), int(landmark.y * frame.shape[0]))
-            cv2.circle(frame, point_px, 2, (0, 0, 255), -1)
-        return frame
-    
+    fps = 30.0
+    reference_video_id = None
+    reference_video_path = None
+
+    # YOLO skeleton overlay (YOLO end-to-end)
+    from ..models.yolo_pose_detector import YOLOPoseDetector
+    from ..utils.yolo_skeleton import draw_yolo_17_skeleton
+
+    try:
+        yolo_pose_detector = YOLOPoseDetector(model_name="yolov8n-pose.pt", device=str(config.device))
+        yolo_conf_threshold = 0.35
+    except Exception as e:
+        logger.warning(f"Failed to initialize YOLOPoseDetector for skeleton overlay: {e}")
+        yolo_pose_detector = None
+        yolo_conf_threshold = 0.35
+
+    def _choose_best_pose(poses):
+        if not poses:
+            return None
+        return max(poses, key=lambda p: float(p.confidence) if p and p.confidence is not None else 0.0)
+
+    # For cancellation / preventing client hangs
+    client_stopped = False
+
+
+
     try:
         while True:
             # Receive message from client
             data = await websocket.receive_json()
-            
-                # Handle configuration message
+
+            # Handle configuration message
             if "config" in data:
-                config = data["config"]
-                exercise_type = config.get("exercise_type", "squat")
-                duration_seconds = config.get("duration_seconds", 15)
-                
-                # Validate exercise_type
-                try:
-                    ExerciseType(exercise_type)  # This will raise ValueError if invalid
-                except ValueError:
+                if is_recording or frames:
                     await websocket.send_json({
                         "type": "error",
-                        "message": f"Invalid exercise type: {exercise_type}. Valid types are: {[e.value for e in ExerciseType]}"
+                        "message": "Send config before recording starts"
                     })
                     continue
-                
-                # Send acknowledgment
+
+                config_data = data["config"]
+                try:
+                    exercise_type, duration_seconds = _validate_recording_config(
+                        config_data.get("exercise_type", "squat"),
+                        config_data.get("duration_seconds", 15),
+                    )
+                except HTTPException as exc:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": exc.detail
+                    })
+                    continue
+
+                reference_video_id = _parse_reference_video_id(config_data.get("reference_video_id")) if config_data.get("reference_video_id") not in (None, '') else None
+                reference_video_path = config_data.get("reference_video_path")
+
                 await websocket.send_json({
                     "type": "config_ack",
                     "message": f"Recording configured for {exercise_type} for {duration_seconds} seconds",
                     "exercise_type": exercise_type,
-                    "duration_seconds": duration_seconds
+                    "duration_seconds": duration_seconds,
+                    "reference_video_id": reference_video_id,
+                    "reference_video_path": reference_video_path
+                })
+                await websocket.send_json({
+                    "type": "recording_started",
+                    "message": "Send JPEG frames now",
+                    "session_id": session_id
                 })
                 continue
-            
+
             # Handle frame message
             if "image" in data:
                 image_data = data.get('image')
                 if not image_data:
                     continue
-                
+
                 # Decode base64 image
                 import base64
                 try:
                     # Remove data URL prefix if present
                     if image_data.startswith('data:image'):
                         image_data = image_data.split(',')[1]
-                    
+
                     # Decode base64
                     image_bytes = base64.b64decode(image_data)
-                    
+
                     # Convert to numpy array
                     nparr = np.frombuffer(image_bytes, np.uint8)
                     frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                    
+
                     if frame is None:
                         await websocket.send_json({
                             "type": "error",
                             "message": "Failed to decode image"
                         })
                         continue
-                    
+
                     # Start recording if not already started
                     if not is_recording:
                         is_recording = True
@@ -894,167 +1292,57 @@ async def websocket_record_session(websocket: WebSocket):
                             "message": "Recording started",
                             "timestamp": start_time
                         })
-                    
-                    # Pose estimation for skeleton overlay
-                    try:
-                        pose_result = pose_detector.detectPose(frame)
-                        if pose_result and pose_result.poseLandmarks:
-                            # Draw skeleton on frame
-                            frame = draw_skeleton(frame, pose_result.poseLandmarks)
-                    except Exception as e:
-                        logger.warning(f"Pose estimation failed: {e}")
-                    
+
                     # Add frame to recording
+                    # Live skeleton overlay: keep YOLO output AND draw it robustly.
+                    if yolo_pose_detector is not None:
+                        try:
+                            poses = yolo_pose_detector.detect(frame)
+                            best = _choose_best_pose(poses)
+                            if best is not None and best.keypoints:
+                                keypoints_xy = [(kp.x, kp.y) for kp in best.keypoints]
+                                keypoints_conf = [kp.confidence for kp in best.keypoints]
+                                frame = draw_yolo_17_skeleton(
+                                    frame,
+                                    keypoints_xy,
+                                    keypoints_conf,
+                                    conf_threshold=yolo_conf_threshold,
+                                )
+                        except Exception as e:
+                            logger.debug(f"YOLO skeleton overlay failed: {e}")
                     frames.append(frame)
+
                     last_frame_time = time.time()
-                    
+
                     # Check if recording duration has elapsed
                     elapsed_time = time.time() - start_time
                     if elapsed_time >= duration_seconds:
                         # Stop recording and process
                         is_recording = False
-                        
+
                         await websocket.send_json({
                             "type": "recording_stopped",
                             "message": f"Recording stopped after {elapsed_time:.1f} seconds",
                             "frames_captured": len(frames)
                         })
-                        
+
                         # Process the recorded video
                         if len(frames) > 0:
                             try:
-                                # Save video to file
-                                timestamp = int(start_time)
-                                filename = f"session_{session_id}_{timestamp}.mp4"
-                                video_path = RECORDINGS_DIR / filename
-                                
-                                # Write video file
-                                if len(frames) > 0:
-                                    try:
-                                        height, width = frames[0].shape[:2]
-                                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                                        out = cv2.VideoWriter(
-                                            str(video_path),
-                                            fourcc,
-                                            fps,
-                                            (width, height)
-                                        )
-                                        
-                                        if not out.isOpened():
-                                            logger.error(f"Failed to open VideoWriter for {video_path}")
-                                            await websocket.send_json({
-                                                "type": "error",
-                                                "message": "Failed to initialize video writer"
-                                            })
-                                            is_recording = False
-                                            frames = []
-                                            start_time = None
-                                            continue
-                                        
-                                        for frame in frames:
-                                            out.write(frame)
-                                        out.release()
-                                        
-                                        if not video_path.exists():
-                                            logger.error(f"Video file was not created at {video_path}")
-                                            await websocket.send_json({
-                                                "type": "error",
-                                                "message": "Failed to create video file"
-                                            })
-                                            is_recording = False
-                                            frames = []
-                                            start_time = None
-                                            continue
-                                            
-                                        logger.info(f"Video saved successfully to {video_path} ({os.path.getsize(video_path)} bytes)")
-                                    except Exception as e:
-                                        logger.error(f"Error writing video file: {e}")
-                                        await websocket.send_json({
-                                            "type": "error",
-                                            "message": f"Error saving video: {str(e)}"
-                                        })
-                                        continue
-                                
-                                # Add to database
-                                video_id = add_video(
-                                    filename=filename,
-                                    original_filename=f"exercise_session_{exercise_type}_{timestamp}.mp4",
+                                result = await _process_recorded_video(
+                                    frames=frames,
+                                    session_id=session_id,
                                     exercise_type=exercise_type,
-                                    file_size=os.path.getsize(video_path) if os.path.exists(video_path) else None,
-                                    duration=len(frames) / fps if fps > 0 else None,
-                                    width=width,
-                                    height=height,
-                                    description=f"Recorded session for {exercise_type}"
+                                    start_time=start_time,
+                                    fps=fps,
+                                    duration_seconds=duration_seconds,
+                                    reference_video_id=reference_video_id,
+                                    reference_video_path=reference_video_path
                                 )
-                                
-                                # Analyze video using video analysis service
-                                if video_analysis_service:
-                                    # Convert frames to numpy array for analysis
-                                    # Note: video_analysis_service.analyze_frames expects list of np.ndarray
-                                    analysis_result = await video_analysis_service.analyze_frames(
-                                        frames=frames,
-                                        exercise_type=exercise_type
-                                    )
-                                    
-                                    # Generate feedback using guidance service
-                                    feedback_text = "Analysis complete but guidance service unavailable"
-                                    if guidance_service and guidance_service.is_ready:
-                                        # Prepare user summary for guidance
-                                        user_summary = {
-                                            "overall_form_score": analysis_result.overall_form_score,
-                                            "summary": analysis_result.summary,
-                                            "form_issues": []  # Extract from frame analyses if needed
-                                        }
-                                        
-                                        # Extract form issues from frame analyses
-                                        form_issues = []
-                                        for frame_analysis in analysis_result.frame_analyses:
-                                            if 'issues' in frame_analysis:
-                                                form_issues.extend(frame_analysis['issues'])
-                                        
-                                        user_summary["form_issues"] = form_issues
-                                        
-                                        # Generate guidance
-                                        feedback_text = guidance_service.generate_guidance(
-                                            exercise_type=exercise_type,
-                                            user_summary=user_summary,
-                                            reference_summary=None  # No reference for now
-                                        )
-                                    else:
-                                        # Fallback feedback
-                                        score = analysis_result.overall_form_score
-                                        if score >= 85:
-                                            verdict = "excellent"
-                                        elif score >= 70:
-                                            verdict = "good"
-                                        elif score >= 50:
-                                            verdict = "needs improvement"
-                                        else:
-                                            verdict = "needs major correction"
-                                        
-                                        feedback_text = (
-                                            f"Overall Summary: Your {exercise_type} form was {verdict} "
-                                            f"with an average score of {score:.1f}% across "
-                                            f"{analysis_result.analyzed_frames}/{analysis_result.total_frames} analyzed frames.\n\n"
-                                            f"Summary: {analysis_result.summary.get('status', 'N/A')}\n\n"
-                                            f"Recommendations: {', '.join(analysis_result.summary.get('recommendations', []))}"
-                                        )
-                                
-                                # Send results to client
                                 await websocket.send_json({
                                     "type": "session_complete",
-                                    "video_id": video_id,
-                                    "video_url": f"/api/videos/{video_id}",
-                                    "exercise_type": exercise_type,
-                                    "duration": len(frames) / fps if fps > 0 else 0,
-                                    "frames_processed": len(frames),
-                                    "analysis": {
-                                        "overall_form_score": analysis_result.overall_form_score,
-                                        "summary": analysis_result.summary
-                                    },
-                                    "feedback": feedback_text
+                                    **result
                                 })
-                                
                             except Exception as e:
                                 logger.error(f"Error processing recorded session: {e}")
                                 await websocket.send_json({
@@ -1066,159 +1354,47 @@ async def websocket_record_session(websocket: WebSocket):
                                 "type": "error",
                                 "message": "No frames recorded"
                             })
-                        
+
                         # Reset for potential next recording
                         is_recording = False
                         frames = []
                         start_time = None
-                    
+
                 except Exception as e:
                     logger.error(f"Error processing frame in recording session: {e}")
                     await websocket.send_json({
                         "type": "error",
                         "message": f"Error processing frame: {str(e)}"
                     })
-            
+
             # Handle explicit stop message
             elif data.get("command") == "stop":
                 if is_recording:
                     is_recording = False
                     elapsed_time = time.time() - start_time if start_time else 0
-                    
+
                     await websocket.send_json({
                         "type": "recording_stopped",
                         "message": f"Recording stopped by client after {elapsed_time:.1f} seconds",
                         "frames_captured": len(frames)
                     })
-                    
-                    # Process recorded frames similar to above
+
                     if len(frames) > 0:
                         try:
-                            # Save video to file
-                            timestamp = int(start_time) if start_time else int(time.time())
-                            filename = f"session_{session_id}_{timestamp}.mp4"
-                            video_path = RECORDINGS_DIR / filename
-                            
-                            # Write video file
-                            if len(frames) > 0:
-                                try:
-                                    height, width = frames[0].shape[:2]
-                                    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                                    out = cv2.VideoWriter(
-                                        str(video_path),
-                                        fourcc,
-                                        fps,
-                                        (width, height)
-                                    )
-                                    
-                                    if not out.isOpened():
-                                        logger.error(f"Failed to open VideoWriter for {video_path}")
-                                        await websocket.send_json({
-                                            "type": "error",
-                                            "message": "Failed to initialize video writer"
-                                        })
-                                        continue
-                                    
-                                    for frame in frames:
-                                        out.write(frame)
-                                    out.release()
-                                    
-                                    if not video_path.exists():
-                                        logger.error(f"Video file was not created at {video_path}")
-                                        await websocket.send_json({
-                                            "type": "error",
-                                            "message": "Failed to create video file"
-                                        })
-                                        continue
-                                        
-                                    logger.info(f"Video saved successfully to {video_path} ({os.path.getsize(video_path)} bytes)")
-                                except Exception as e:
-                                    logger.error(f"Error writing video file: {e}")
-                                    await websocket.send_json({
-                                        "type": "error",
-                                        "message": f"Error saving video: {str(e)}"
-                                    })
-                                    continue
-                            
-                            # Add to database
-                            video_id = add_video(
-                                filename=filename,
-                                original_filename=f"exercise_session_{exercise_type}_{timestamp}.mp4",
+                            result = await _process_recorded_video(
+                                frames=frames,
+                                session_id=session_id,
                                 exercise_type=exercise_type,
-                                file_size=os.path.getsize(video_path) if os.path.exists(video_path) else None,
-                                duration=len(frames) / fps if fps > 0 else None,
-                                width=width,
-                                height=height,
-                                description=f"Recorded session for {exercise_type}"
+                                start_time=start_time if start_time else time.time(),
+                                fps=fps,
+                                duration_seconds=duration_seconds,
+                                reference_video_id=reference_video_id,
+                                reference_video_path=reference_video_path
                             )
-                            
-                            # Analyze video
-                            if video_analysis_service:
-                                analysis_result = await video_analysis_service.analyze_frames(
-                                    frames=frames,
-                                    exercise_type=exercise_type
-                                )
-                                
-                                # Generate feedback
-                                feedback_text = "Analysis complete but guidance service unavailable"
-                                if guidance_service and guidance_service.is_ready:
-                                    user_summary = {
-                                        "overall_form_score": analysis_result.overall_form_score,
-                                        "summary": analysis_result.summary,
-                                        "form_issues": []
-                                    }
-                                    
-                                    form_issues = []
-                                    for frame_analysis in analysis_result.frame_analyses:
-                                        if 'issues' in frame_analysis:
-                                            form_issues.extend(frame_analysis['issues'])
-                                    
-                                    user_summary["form_issues"] = form_issues
-                                    
-                                    feedback_text = guidance_service.generate_guidance(
-                                        exercise_type=exercise_type,
-                                        user_summary=user_summary,
-                                        reference_summary=None
-                                    )
-                                else:
-                                    # Fallback feedback
-                                    score = analysis_result.overall_form_score
-                                    if score >= 85:
-                                        verdict = "excellent"
-                                    elif score >= 70:
-                                        verdict = "good"
-                                    elif score >= 50:
-                                        verdict = "needs improvement"
-                                    else:
-                                        verdict = "needs major correction"
-                                    
-                                    feedback_text = (
-                                        f"Overall Summary: Your {exercise_type} form was {verdict} "
-                                        f"with an average score of {score:.1f}% across "
-                                        f"{analysis_result.analyzed_frames}/{analysis_result.total_frames} analyzed frames.\n\n"
-                                        f"Summary: {analysis_result.summary.get('status', 'N/A')}\n\n"
-                                        f"Recommendations: {', '.join(analysis_result.summary.get('recommendations', []))}"
-                                    )
-                                
-                                await websocket.send_json({
-                                    "type": "session_complete",
-                                    "video_id": video_id,
-                                    "video_url": f"/api/videos/{video_id}",
-                                    "exercise_type": exercise_type,
-                                    "duration": len(frames) / fps if fps > 0 else 0,
-                                    "frames_processed": len(frames),
-                                    "analysis": {
-                                        "overall_form_score": analysis_result.overall_form_score,
-                                        "summary": analysis_result.summary
-                                    },
-                                    "feedback": feedback_text
-                                })
-                            else:
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "message": "Video analysis service not available"
-                                })
-                                
+                            await websocket.send_json({
+                                "type": "session_complete",
+                                **result
+                            })
                         except Exception as e:
                             logger.error(f"Error processing recorded session: {e}")
                             await websocket.send_json({
@@ -1230,7 +1406,7 @@ async def websocket_record_session(websocket: WebSocket):
                             "type": "error",
                             "message": "No frames recorded"
                         })
-                    
+
                     # Reset state
                     is_recording = False
                     frames = []
@@ -1240,7 +1416,7 @@ async def websocket_record_session(websocket: WebSocket):
                         "type": "error",
                         "message": "Not currently recording"
                     })
-    
+
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected: {session_id}")
     except Exception as e:
@@ -1252,3 +1428,11 @@ async def websocket_record_session(websocket: WebSocket):
             })
         except:
             pass  # Ignore if we can't send error message
+
+
+# If youtube_routes module is present, wire its routes too
+try:
+    from .youtube_routes import setup_youtube_routes
+    setup_youtube_routes(app)
+except Exception as e:
+    logger.info(f"YouTube route registration skipped: {e}")

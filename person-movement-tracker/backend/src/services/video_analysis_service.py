@@ -60,7 +60,8 @@ class VideoAnalysisService:
     
     async def analyze_frames(self, frames: List[np.ndarray], 
                            exercise_type: Optional[str] = None,
-                           callback=None) -> VideoAnalysisResult:
+                           callback=None,
+                           fps: float = 30.0) -> VideoAnalysisResult:
         """
         Analyze multiple video frames
         
@@ -109,7 +110,7 @@ class VideoAnalysisService:
                 # Create frame analysis
                 frame_analysis = {
                     "frame_number": idx,
-                    "timestamp": idx / 30.0,  # Assume 30 FPS
+                    "timestamp": idx / fps,  # Use actual video FPS
                     "people_detected": len(poses) if poses else 0,
                     "poses": self._format_poses(poses),
                     "issues": issues,
@@ -144,8 +145,8 @@ class VideoAnalysisService:
             result = VideoAnalysisResult(
                 total_frames=total_frames,
                 analyzed_frames=len(frame_analyses),
-                duration=total_frames / 30.0,  # Assume 30 FPS
-                fps=30.0,
+                duration=total_frames / fps,
+                fps=fps,
                 detected_exercise=detected_exercise,
                 overall_form_score=overall_form_score,
                 frame_analyses=frame_analyses,
@@ -192,7 +193,7 @@ class VideoAnalysisService:
             if not frames:
                 raise ValueError("No frames extracted from video file")
 
-            analysis_result = await self.analyze_frames(frames, exercise_type=exercise_type, callback=callback)
+            analysis_result = await self.analyze_frames(frames, exercise_type=exercise_type, callback=callback, fps=fps)
             return analysis_result
 
         except Exception as e:

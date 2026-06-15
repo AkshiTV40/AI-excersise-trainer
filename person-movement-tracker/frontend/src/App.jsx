@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import CameraFeed from './components/CameraFeed';
 import ExerciseFeedback from './components/ExerciseFeedback';
 import ExerciseSelector from './components/ExerciseSelector';
+import RecordSession from './components/RecordSession';
 import YouTubeAnalyzer from './components/YouTubeAnalyzer';
 import Instructions from './components/Instructions';
 import ExerciseTimer from './components/ExerciseTimer';
@@ -132,7 +133,9 @@ function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        {tab === 'youtube' ? (
+        {tab === 'live' ? (
+          <RecordSession selectedExercise={selectedExercise} />
+        ) : tab === 'youtube' ? (
           <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
             <YouTubeAnalyzer />
           </motion.div>

@@ -1,12 +1,7 @@
 import uvicorn
-from .database import init_db
-
-try:
-    from .api.routes import app
-    from .config import config
-except ImportError:
-    from api.routes import app
-    from config import config
+from src.database import init_db
+from src.api.routes import app
+from src.config import config
 
 # Initialize database on startup
 @app.on_event("startup")
