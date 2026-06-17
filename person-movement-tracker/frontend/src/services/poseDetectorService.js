@@ -22,8 +22,12 @@ class PoseDetectorService {
     try {
       await this.loadTFJS();
       
-      if (window.movenet) {
-        this.model = await window.movenet.load();
+      // Check if poseDetection is available globally
+      if (window.posedetection) {
+        this.detector = await window.posedetection.createDetector(
+          window.posedetection.SupportedModels.MoveNet,
+          { modelType: window.posedetection.movenet.modelType.SINGLEPOSE_LIGHT }
+        );
         this.isReady = true;
         console.log('MoveNet initialized successfully');
         return true;
@@ -39,27 +43,22 @@ class PoseDetectorService {
   }
 
   async loadTFJS() {
-    if (window.movenet) return;
+    if (window.posedetection) return;
     
-    return new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core,@tensorflow/tfjs-converter,@tensorflow/tfjs-backend-webgl,@tensorflow-models/pose-detection'.split(',').map(u => `https://cdn.jsdelivr.net/npm/${u}@2/dist/tfjs-core.min.js`).join(',');
-      
-      const setup = () => {
-        Promise.all([
-          import('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@3/dist/tfjs-core.min.js'),
-          import('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@3/dist/tfjs-backend-webgl.min.js'),
-          import('https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2/dist/pose-detection.min.js')
-        ]).then(() => resolve()).catch(() => resolve());
+    return new Promise((resolve, reject) => {
+      // Load TFJS
+      const tfjsScript = document.createElement('script');
+      tfjsScript.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tfjs.min.js';
+      tfjsScript.onload = () => {
+        // Load pose detection
+        const poseDetectionScript = document.createElement('script');
+        poseDetectionScript.src = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.0.0/dist/pose-detection.min.js';
+        poseDetectionScript.onload = () => resolve();
+        poseDetectionScript.onerror = () => reject(new Error('Failed to load pose-detection'));
+        document.head.appendChild(poseDetectionScript);
       };
-      
-      if (document.readyState === 'complete') {
-        setup();
-      } else {
-        window.addEventListener('load', setup);
-      }
-      
-      document.head.appendChild(script);
+      tfjsScript.onerror = () => reject(new Error('Failed to load tfjs'));
+      document.head.appendChild(tfjsScript);
     });
   }
 
@@ -387,4 +386,3 @@ class PoseDetectorService {
 
 export const poseDetector = new PoseDetectorService();
 export default poseDetector;
-
