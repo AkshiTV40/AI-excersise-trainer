@@ -92,6 +92,12 @@ export const useRecordSession = ({
       setStatus('idle');
 
       await connect();
+      // Check if WebSocket is still open after connecting
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        setError('WebSocket connection lost');
+        setStatus('error');
+        return;
+      }
       sendConfig(type || exerciseType || 'squat', {
         durationSeconds,
         referenceVideoId,
