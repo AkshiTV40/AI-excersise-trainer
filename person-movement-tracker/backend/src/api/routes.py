@@ -66,24 +66,50 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Middleware to increase request size limit to 500 MB
-@app.middleware("http")
-async def increase_request_size_limit(request: Request, call_next):
-    # Set the limit to 500 MB
-    max_size = 500 * 1024 * 1024  # 500 MB
-    if request.headers.get("content-length"):
-        content_length = int(request.headers.get("content-length"))
-        if content_length > max_size:
-            return JSONResponse(
-                status_code=413,
-                content={"detail": f"File too large. Maximum size is {max_size // (1024*1024)} MB"}
-            )
-    return await call_next
+# Increase max request body size to 500MB
+# Starlette's default multipart parser buffers the entire body; we need to
+# pre-read it at the ASGI level to bypass any server-level limits.
+_MAX_BODY = 500 * 1024 * 1024  # 500 MB
 
-# Request size limiting middleware.
-# WARNING: Starlette/FastAPI enforce request-body limits, but the real limit is often set by
-# your reverse proxy (nginx/vercel). This middleware currently passes through; it is kept
-# here to ensure the app handles large request bodies consistently.
+class _LargeBodyMiddleware:
+    """ASGI middleware: buffers the full request body so Starlette sees it as a single chunk."""
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.inner(scope, receive, send)
+            return
+
+        chunks = []
+        total = 0
+        more = True
+        while more:
+            msg = await receive()
+            chunk = msg.get("body", b"")
+            total += len(chunk)
+            if total > _MAX_BODY:
+                await send({"type": "http.response.start", "status": 413,
+                            "headers": [(b"content-type", b"application/json")]})
+                await send({"type": "http.response.body",
+                            "body": b'{"detail":"Payload too large (max 500 MB)"}'})
+                return
+            chunks.append(chunk)
+            more = msg.get("more_body", False)
+
+        body = b"".join(chunks)
+        done = False
+
+        async def _recv():
+            nonlocal done
+            if not done:
+                done = True
+                return {"type": "http.request", "body": body}
+            return {"type": "http.request", "body": b""}
+
+        await self.inner(scope, _recv, send)
+
+
 
 
 
@@ -1479,4 +1505,8 @@ try:
     setup_youtube_routes(app)
 except Exception as e:
     logger.info(f"YouTube route registration skipped: {e}")
+
+# Wrap with ASGI middleware to allow large request bodies (500 MB)
+# This must be the outermost layer so it intercepts before Starlette parses the body
+app = _LargeBodyMiddleware(app)
 
