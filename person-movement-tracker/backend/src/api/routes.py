@@ -1,4 +1,5 @@
-from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException, Request
+
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -64,6 +65,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Middleware to increase request size limit to 500 MB
+@app.middleware("http")
+async def increase_request_size_limit(request: Request, call_next):
+    # Set the limit to 500 MB
+    max_size = 500 * 1024 * 1024  # 500 MB
+    if request.headers.get("content-length"):
+        content_length = int(request.headers.get("content-length"))
+        if content_length > max_size:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": f"File too large. Maximum size is {max_size // (1024*1024)} MB"}
+            )
+    return await call_next
+
+# Request size limiting middleware.
+# WARNING: Starlette/FastAPI enforce request-body limits, but the real limit is often set by
+# your reverse proxy (nginx/vercel). This middleware currently passes through; it is kept
+# here to ensure the app handles large request bodies consistently.
+
+
 
 # Services
 tracking_service = TrackingService()
