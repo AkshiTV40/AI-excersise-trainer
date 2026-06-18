@@ -85,9 +85,22 @@ const RecordSession = ({ selectedExercise = 'squat' }) => {
     });
   }, [isCameraOn, referenceVideoId, referenceVideoPath, startCamera, selectedExercise, start]);
 
+  const captureStopRef = useRef(null);
+
   const handleStop = useCallback(() => {
+    // Stop capture interval first (prevents sending more frames after stop)
+    if (captureLoopRef.current) {
+      clearInterval(captureLoopRef.current);
+      captureLoopRef.current = null;
+    }
+
+    // Stop camera tracks
+    stopCamera();
+
+    // Stop server-side recording
     stop();
-  }, [stop]);
+  }, [stop, stopCamera]);
+
 
    const durationLabel = Math.round(sessionComplete?.duration_seconds ?? sessionComplete?.duration ?? 0);
    const videoUrl = sessionComplete?.video_url;

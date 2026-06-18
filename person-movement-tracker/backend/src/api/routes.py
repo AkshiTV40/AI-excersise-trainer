@@ -1209,7 +1209,18 @@ async def websocket_record_session(websocket: WebSocket):
     reference_video_id = None
     reference_video_path = None
 
-    # YOLO skeleton overlay (YOLO end-to-end)
+    # Initialize MediaPipe Pose for live skeleton overlay
+    import mediapipe as mp
+    mp_pose = mp.solutions.pose
+    mp_drawing = mp.solutions.drawing_utils
+    pose = mp_pose.Pose(
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+        model_complexity=1,
+        smooth_landmarks=True
+    )
+
+    # YOLO skeleton overlay (YOLO end-to-end) - kept for fallback
     from ..models.yolo_pose_detector import YOLOPoseDetector
     from ..utils.yolo_skeleton import draw_yolo_17_skeleton
 
@@ -1315,23 +1326,30 @@ async def websocket_record_session(websocket: WebSocket):
                             "timestamp": start_time
                         })
 
-                    # Add frame to recording
-                    # Live skeleton overlay: keep YOLO output AND draw it robustly.
-                    if yolo_pose_detector is not None:
-                        try:
-                            poses = yolo_pose_detector.detect(frame)
-                            best = _choose_best_pose(poses)
-                            if best is not None and best.keypoints:
-                                keypoints_xy = [(kp.x, kp.y) for kp in best.keypoints]
-                                keypoints_conf = [kp.confidence for kp in best.keypoints]
-                                frame = draw_yolo_17_skeleton(
-                                    frame,
-                                    keypoints_xy,
-                                    keypoints_conf,
-                                    conf_threshold=yolo_conf_threshold,
-                                )
-                        except Exception as e:
-                            logger.debug(f"YOLO skeleton overlay failed: {e}")
+                    # Process frame with MediaPipe Pose for skeleton overlay
+                    # Flip the frame horizontally for a natural 'mirror' view
+                    frame = cv2.flip(frame, 1)
+                    
+                    # Convert BGR to RGB for MediaPipe
+                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    
+                    # Process with MediaPipe Pose
+                    results = pose.process(rgb_frame)
+                    
+                    # Draw skeleton landmarks if detected
+                    if results.pose_landmarks:
+                        mp_drawing.draw_landmarks(
+                            frame,
+                            results.pose_landmarks,
+                            mp_pose.POSE_CONNECTIONS,
+                            mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
+                            mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2)
+                        )
+                    
+                    # Add recording indicator
+                    cv2.putText(frame, "RECORDING LIVE SKELETON...", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
+                    
                     frames.append(frame)
 
                     last_frame_time = time.time()
@@ -1450,6 +1468,9 @@ async def websocket_record_session(websocket: WebSocket):
             })
         except:
             pass  # Ignore if we can't send error message
+    finally:
+        # Clean up MediaPipe resources
+        pose.close()
 
 
 # If youtube_routes module is present, wire its routes too
@@ -1458,3 +1479,4 @@ try:
     setup_youtube_routes(app)
 except Exception as e:
     logger.info(f"YouTube route registration skipped: {e}")
+

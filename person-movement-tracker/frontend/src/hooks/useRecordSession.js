@@ -108,9 +108,19 @@ export const useRecordSession = ({
   );
 
   const stop = useCallback(() => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ command: 'stop' }));
+    const ws = wsRef.current;
+    if (!ws) return;
+
+    // If we're already closing/closed, avoid sending (prevents unhandled promise-like errors in some browsers)
+    if (ws.readyState !== WebSocket.OPEN) return;
+
+    try {
+      ws.send(JSON.stringify({ command: 'stop' }));
+    } catch (e) {
+      // ignore - UI will handle eventual socket close
+    }
   }, []);
+
 
   useEffect(() => {
     return () => disconnect();
