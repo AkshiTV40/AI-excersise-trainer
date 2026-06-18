@@ -43,6 +43,9 @@ class AppConfig(BaseSettings):
     hf_token: Optional[str] = None
     hf_cache_dir: str = "./models"
     
+    # Google AI
+    google_ai_api_key: Optional[str] = None
+    
     # Performance
     max_frame_size: str = "[1280,720]"
     mobile_frame_size: str = "[640,480]"
